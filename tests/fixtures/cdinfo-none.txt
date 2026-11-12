@@ -1,0 +1,25 @@
+CD location   : /dev/cdrom
+CD driver name: GNU/Linux
+   access mode: IOCTL
+
+__________________________________
+
+CD-ROM Track List (1 - 9)
+  #: MSF       LSN    Type   Green? Copy? Channels Premphasis?
+  1: 00:02:00  000000 audio  false  no    2        no
+  2: 04:54:13  021913 audio  false  no    2        no
+  3: 08:28:62  038012 audio  false  no    2        no
+  4: 12:42:56  057056 audio  false  no    2        no
+  5: 19:19:72  086847 audio  false  no    2        no
+  6: 21:43:00  097575 audio  false  no    2        no
+  7: 25:40:08  115358 audio  false  no    2        no
+  8: 29:35:04  132979 audio  false  no    2        no
+  9: 35:14:24  158424 audio  false  no    2        no
+170: 43:13:51  194376 leadout (435 MB raw, 435 MB formatted)
+Media Catalog Number (MCN): 0000000000000
+Last CD Session LSN: 0
+audio status: no status
+volume level port 0: 216 (0..255)  84 (0..100)
+volume level port 1: 216 (0..255)  84 (0..100)
+volume level port 2:   0 (0..255)   0 (0..100)
+volume level port 3:   0 (0..255)   0 (0..100)

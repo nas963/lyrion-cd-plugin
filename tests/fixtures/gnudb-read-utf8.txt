@@ -1,0 +1,30 @@
+210 data 18018f85 CD database entry follows (until terminating `.')
+# xmcd
+#
+# Track frame offsets:
+#     150
+#     9975
+#     20025
+#
+# Disc length: 401 seconds
+# Leadout: 30075
+#
+# Revision: 0
+# Processed by: gnucddb v1.0.1 Copyright (c) Gnudb.
+# Submitted via: gnudbx v1.0.13
+# Artid: ece0a834-cc75-4673-a07f-ff3552c5457c
+# Artid: ece0a834-cc75-4673-a07f-ff3552c5457c
+#
+DISCID=18018f03
+DTITLE=edad del pavo / Sigue la línea morada
+DYEAR=
+DGENRE=
+TTITLE0=Sigue la línea morada - acoustic
+TTITLE1=Sigue la línea morada - electric
+TTITLE2=Sigue la línea morada - strings
+EXTD=
+EXTT0=
+EXTT1=
+EXTT2=
+PLAYORDER=
+.

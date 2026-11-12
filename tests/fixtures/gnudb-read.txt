@@ -1,0 +1,47 @@
+210 data 6a0a1f86 CD database entry follows (until terminating `.')
+# xmcd
+#
+# Track frame offsets: 
+#        150
+#        22063
+#        38162
+#        57206
+#        86997
+#        97725
+#        115508
+#        133129
+#        158574
+#
+# Disc length: 2593 seconds
+#
+# Revision: 4
+# Processed by: gnucddb v1.0.1 Copyright (c) Gnudb.
+# Submitted via: ExactAudioCopy v0.95b1
+# Cover: https://coverartarchive.org/release/b4e63da9-e1ba-4931-831b-e307ce73f0b1/35292632617-500.jpg
+# Artid: b4e63da9-e1ba-4931-831b-e307ce73f0b1
+#
+DISCID=6a0a1f09
+DTITLE=Bobby McFerrin / The Story of Jazz
+DYEAR=2000
+DGENRE=Jazz
+TTITLE0=Don't Worry Be Happy
+TTITLE1=Turtle Shoes
+TTITLE2=Another Night In Tunisia
+TTITLE3=Even For Me
+TTITLE4=Manana Iguana
+TTITLE5=Drive
+TTITLE6=I Hear Music
+TTITLE7=Walkin'
+TTITLE8='Round Midnight
+EXTD=Cema - JazzTime series\n\nS21-56915\n\nDate: 1993
+EXTT0=
+EXTT1=
+EXTT2=
+EXTT3=
+EXTT4=
+EXTT5=
+EXTT6=
+EXTT7=
+EXTT8=
+PLAYORDER=
+.

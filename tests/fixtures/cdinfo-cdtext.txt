@@ -1,0 +1,25 @@
+CD location   : /dev/cdrom
+CD driver name: GNU/Linux
+   access mode: IOCTL
+
+__________________________________
+
+CD-ROM Track List (1 - 3)
+  #: MSF       LSN    Type   Green? Copy? Channels Premphasis?
+  1: 00:02:00  000000 audio  false  no    2        no
+  2: 03:20:00  014850 audio  false  no    2        no
+  3: 07:41:30  034530 audio  false  no    2        no
+170: 11:02:00  049650 leadout (435 MB raw, 435 MB formatted)
+Media Catalog Number (MCN): 0000000000000
+CD-TEXT for Disc:
+	PERFORMER: Björk
+	TITLE: Vespertine
+CD-TEXT for Track  1:
+	PERFORMER: Björk
+	TITLE: Hidden Place
+CD-TEXT for Track  2:
+	PERFORMER: Björk feat. Matmos
+	TITLE: Cocoon
+CD-TEXT for Track  3:
+	TITLE: It's Not Up to You
+audio status: no status
