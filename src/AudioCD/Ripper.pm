@@ -341,6 +341,7 @@ sub _start {
             profile     => $rec->{profile},
             flac_level  => $rec->{flac_level},
             quiet_speed => $rec->{quiet_speed},
+            no_speed    => $rec->{no_speed},
             offset      => $rec->{offset},
             out_dir     => $rec->{tmp},
             cover       => $cover,
@@ -419,6 +420,14 @@ sub _on_exit {
     return if $rec->{finished};
     if ($rec->{cancel}) {
         $self->_finish($rec, 'cancelled', defined $rec->{reason} ? (reason => $rec->{reason}) : ());
+    }
+    elsif ($status != 0 && !$rec->{no_speed} && grep { /does not support changing speeds/i } @{ $rec->{tail} }) {
+        # neki USB drajvovi ne menjaju brzinu pa cyanrip staje na -S: ponovi isti rip bez -S
+        $rec->{no_speed} = 1;
+        $self->{current} = undef;
+        $rec->{job}      = undef;
+        $self->_remove_tmp($rec);
+        $self->_start($rec);
     }
     elsif ($status == 0) {
         my %res = eval { $self->_collect($rec) };

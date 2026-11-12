@@ -339,6 +339,24 @@ sub mk {
     ok(-f "$rips3/Izvođač/Album/02 - Naslov 2.flac", 'a posle je kompletan');
 }
 
+# ---- drajv bez promene brzine: secure ponavlja bez -S ----
+{
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    $AUTO = sub {
+        my ($sp) = @_;
+        if (grep { $_ eq '-S' } @{ $sp->{argv} }) { $sp->{on_line}->('Device does not support changing speeds!'); $sp->{on_exit}->(1) }
+        else { write_rip($sp); $sp->{on_exit}->(0) }
+    };
+    my $r = mk();
+    $r->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips, profile => 'secure');
+    is(scalar @SPAWNS, 2, 'secure: drugi pokusaj posle odbijene brzine');
+    ok((grep { $_ eq '-S' } @{ $SPAWNS[0]{argv} }) && !(grep { $_ eq '-S' } @{ $SPAWNS[1]{argv} }), 'secure: prvi sa -S, drugi bez');
+    is($r->history->[0]{result}, 'ok', 'secure: rip uspeo');
+    is(scalar @{ $r->history }, 1, 'secure: jedan zapis u istoriji');
+    ok(-f "$rips/Izvođač/Album/01 - Naslov 1.flac", 'secure: album postoji');
+}
+
 # ---- greska ----
 {
     my $rips = fresh_rips();

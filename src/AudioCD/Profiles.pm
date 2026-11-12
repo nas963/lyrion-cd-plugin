@@ -88,7 +88,7 @@ sub rip_argv {
 	push @c, '-d', $a{device} if defined $a{device};
 	push @c, '-P', $p->{paranoia} if defined $p->{paranoia};
 	push @c, '-r', $p->{retries} if defined $p->{retries};
-	my $speed = defined $a{quiet_speed} ? $a{quiet_speed} : $p->{speed};
+	my $speed = $a{no_speed} ? undef : defined $a{quiet_speed} ? $a{quiet_speed} : $p->{speed};
 	push @c, '-S', $speed if defined $speed;
 	push @c, '-o', 'flac';    # flac_level se ne prosledjuje: cyanrip flac uvek koristi maksimalnu kompresiju
 	push @c, '-D', $a{out_dir}, '-F', '{track}';    # <out_dir>/<N>.flac, log i cue u istom folderu
