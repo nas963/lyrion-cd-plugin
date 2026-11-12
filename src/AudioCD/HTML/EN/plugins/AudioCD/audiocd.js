@@ -107,12 +107,12 @@
   }
 
   // Komanda sa porukom o ishodu; obnavlja stanje.
-  function run(promise, okText) {
+  function run(start, okText) {    // start: funkcija koja salje zahtev (poziva se tek posle provere pending)
     if (state.pending) return Promise.resolve();
     state.pending = true;
     last.releases = null;    // izbor izdanja se vraca na stanje servera ako komanda ne uspe
     setButtons();
-    return promise.then(function (res) {
+    return start().then(function (res) {
       if (res && res.error) say(errText(res), 'err');
       else if (okText) say(okText, 'ok');
       state.fastUntil = Date.now() + FAST_AFTER_CMD;
@@ -257,10 +257,15 @@
     var ready = !!(snap && snap.status === 'ready' && snap.metadata);
     var busy = state.pending;
     $('btn-play').disabled = busy || !ready || !$('player').value;
-    $('btn-rip').disabled = busy || !ready;
+    var missing = !!(snap && (snap.missing_tools || []).length);
+    $('btn-rip').disabled = busy || !ready || missing;
     $('btn-edit').disabled = busy || !ready;
     $('btn-eject').disabled = busy;
     $('btn-load').disabled = busy;
+    var md = (snap && snap.metadata) || {};
+    var noData = !!(snap && snap.status === 'ready' && (md.source === 'generic' || !(snap.releases || []).length));
+    $('btn-retry').hidden = !noData;
+    $('btn-retry').disabled = busy;
     var plays = document.querySelectorAll('#tracks .play');
     for (var i = 0; i < plays.length; i++) plays[i].disabled = busy || !ready || !$('player').value;
   }
@@ -341,7 +346,7 @@
         li.appendChild(el('span', 'hist-main', who(q)));
         var b = el('button', 'small', t('UI_CANCEL_RIP'));
         b.type = 'button';
-        b.addEventListener('click', function () { run(cmd('cancel', 'id:' + q.id)); });
+        b.addEventListener('click', function () { run(function () { return cmd('cancel', 'id:' + q.id); }); });
         li.appendChild(b);
         ul.appendChild(li);
       });
@@ -360,7 +365,7 @@
 
   function canMove(e) {
     var root = String(CFG.ripsDir || '').replace(/\/+$/, '');
-    return (e.result === 'ok' || e.result === 'accurip_mismatch') && e.path && root && String(e.path).indexOf(root + '/') === 0;
+    return (e.result === 'ok' || e.result === 'accurip_mismatch') && !e.moved && e.path && root && String(e.path).indexOf(root + '/') === 0;
   }
 
   function renderHistory() {
@@ -399,8 +404,9 @@
         var wk = 'ERR_WARN_' + String(mv.warning).toUpperCase();
         main.appendChild(el('div', 'warn-text', S[wk] != null ? t(wk) : String(mv.warning)));
       }
-      var moved = (e.result === 'ok' || e.result === 'accurip_mismatch') && e.path && !canMove(e);
-      if (moved) main.appendChild(el('div', 'muted', t('UI_MOVED_TO', [e.path])));
+      if (e.path && (e.result === 'ok' || e.result === 'accurip_mismatch')) {
+        main.appendChild(el('div', 'muted', e.moved ? t('UI_MOVED_TO', [e.path]) : String(e.path)));
+      }
       li.appendChild(main);
 
       if (mv.moving) {
@@ -461,21 +467,21 @@
     store(PLAYER_KEY, pid);
     var name = $('player').options[$('player').selectedIndex].text;
     var track = n || 1;
-    run(cmd('play', 'player:' + pid, 'track:' + track), null).then(function (res) {
+    run(function () { return cmd('play', 'player:' + pid, 'track:' + track); }, null).then(function (res) {
       if (res && !res.error) say(t('UI_PLAY_STARTED', [name]), 'ok');
     });
   }
 
   function moveToLibrary(e) {
     if (!window.confirm(t('UI_MOVE_CONFIRM', [who(e)]))) return;
-    run(cmd('move', 'id:' + e.id), t('UI_MOVE_STARTED'));
+    run(function () { return cmd('move', 'id:' + e.id); }, t('UI_MOVE_STARTED'));
   }
 
   function eject() {
     var s = state.snap || {};
     var jobs = (s.drive_busy && s.drive_busy !== 'none' && s.drive_busy !== 'process') || (s.rip && s.rip.current);
     if (jobs && !window.confirm(t('UI_EJECT_CONFIRM'))) return;
-    run(cmd('eject'), t('UI_EJECTING'));
+    run(function () { return cmd('eject'); }, t('UI_EJECTING'));
   }
 
   function openDialog(dlg) {
@@ -501,7 +507,7 @@
     var dir = $('rip-dir').value.trim();
     if (dir) params.push('dir:' + dir);
     closeDialog($('dlg-rip'));
-    run(cmd.apply(null, ['rip'].concat(params)), t('UI_RIP_STARTED'));
+    run(function () { return cmd.apply(null, ['rip'].concat(params)); }, t('UI_RIP_STARTED'));
   }
 
   function openEdit() {
@@ -546,7 +552,7 @@
       });
     }
     closeDialog($('dlg-edit'));
-    run(cmd('edit', 'json:' + JSON.stringify(data)), t('UI_SAVED'));
+    run(function () { return cmd('edit', 'json:' + JSON.stringify(data)); }, t('UI_SAVED'));
   }
 
   // ---------- pokretanje ----------
@@ -554,7 +560,7 @@
   function setStaticText() {
     var map = {
       'h-title': 'TITLE', 'settings-link': 'UI_SETTINGS', 'release-label': 'UI_RELEASE', 'player-label': 'UI_PLAYER',
-      'btn-play': 'UI_PLAY', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD',
+      'btn-play': 'UI_PLAY', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD', 'btn-retry': 'UI_RETRY',
       'rip-dlg-title': 'UI_RIP_DIALOG_TITLE', 'rip-dir-label': 'UI_RIP_FOLDER', 'rip-profile-label': 'UI_PROFILE',
       'rip-eject-label': 'UI_EJECT_AFTER', 'rip-dlg-cancel': 'UI_CANCEL', 'rip-dlg-go': 'UI_START_RIP',
       'edit-title': 'UI_EDIT_TITLE', 'ed-artist-label': 'UI_ARTIST', 'ed-album-label': 'UI_ALBUM', 'ed-year-label': 'UI_YEAR',
@@ -571,14 +577,15 @@
     setStaticText();
     $('player').addEventListener('change', function () { store(PLAYER_KEY, $('player').value); setButtons(); });
     $('release').addEventListener('change', function () {
-      run(cmd('select_release', 'index:' + $('release').value));
+      run(function () { return cmd('select_release', 'index:' + $('release').value); });
     });
     $('btn-play').addEventListener('click', function () { play(1); });
     $('btn-rip').addEventListener('click', openRip);
     $('btn-edit').addEventListener('click', openEdit);
     $('btn-eject').addEventListener('click', eject);
-    $('btn-load').addEventListener('click', function () { run(cmd('load'), t('UI_LOADING')); });
-    $('rip-cancel').addEventListener('click', function () { run(cmd('cancel', 'id:' + $('rip-cancel').dataset.id)); });
+    $('btn-retry').addEventListener('click', function () { run(function () { return cmd('load', 'force:1'); }, t('UI_LOADING')); });
+    $('btn-load').addEventListener('click', function () { run(function () { return cmd('load'); }, t('UI_LOADING')); });
+    $('rip-cancel').addEventListener('click', function () { run(function () { return cmd('cancel', 'id:' + $('rip-cancel').dataset.id); }); });
     $('form-rip').addEventListener('submit', submitRip);
     $('rip-dlg-cancel').addEventListener('click', function () { closeDialog($('dlg-rip')); });
     $('form-edit').addEventListener('submit', submitEdit);

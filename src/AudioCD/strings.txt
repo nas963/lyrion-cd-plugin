@@ -601,3 +601,7 @@ PLUGIN_AUDIOCD_SET_ERR_DRIVE_OFFSET
 PLUGIN_AUDIOCD_SET_SAVED
 	EN	Settings saved.
 	SR	Podešavanja su sačuvana.
+
+PLUGIN_AUDIOCD_UI_RETRY
+	EN	Try again
+	SR	Pokušaj ponovo

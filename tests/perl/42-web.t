@@ -132,6 +132,10 @@ like($css, qr/prefers-color-scheme:\s*dark/, 'tamna tema preko prefers-color-sch
 like($css, qr/max-width:\s*480px/, 'pravila za usku stranicu');
 like($page, qr/name="viewport"/, 'viewport meta');
 like($js, qr{/jsonrpc\.js}, 'JSON-RPC');
+like($js, qr/cmd\('load', 'force:1'\)/, 'Pokusaj ponovo salje load force:1');
+like($js, qr/missing_tools \|\| \[\]\)\.length/, 'Ripuj se gasi kad nedostaju alati');
+like($js, qr/e\.moved \? t\('UI_MOVED_TO'/, 'oznaka biblioteke po e.moved');
+unlike($js, qr/run\(cmd\(/, 'run() dobija funkciju, ne gotov zahtev');
 like($js, qr/catch \(e\)/, 'localStorage u try/catch');
 for my $cmdname (qw(status history load play rip cancel eject select_release edit move)) {
 	like($js, qr/\Q'$cmdname'\E/, "JS poziva audiocd $cmdname");

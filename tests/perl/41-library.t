@@ -218,6 +218,7 @@ SKIP: {
 	is $r->update_path('nema', '/x'), 0, 'update_path: nepoznat id';
 	my $r2 = Plugins::AudioCD::Ripper->new(history_file => $hf);
 	is_deeply [ map { $_->{path} } @{ $r2->history } ], [ '/old/A', '/new/B' ], 'update_path: sacuvano';
+	is_deeply [ map { $_->{moved} ? 1 : 0 } @{ $r2->history } ], [ 0, 1 ], 'update_path: moved=1 samo premestenom unosu, sacuvano';
 }
 
 # rescan_cmd

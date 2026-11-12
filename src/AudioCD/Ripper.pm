@@ -183,6 +183,7 @@ sub update_path {
     my ($e) = grep { defined $_->{id} && defined $id && $_->{id} eq $id } @{ $self->{history} };
     return 0 unless $e;
     $e->{path} = $path;
+    $e->{moved} = 1;    # u biblioteci (cinjenica sa servera, ne nagadjanje po putanji)
     $self->_save_history;
     return 1;
 }
