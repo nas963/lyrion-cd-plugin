@@ -151,6 +151,7 @@ sub _run_cmd {
 			delete $RUN_CMD{$pid} if defined $pid;
 			$cb->(join '', map { Encode::encode('UTF-8', $_) . "\n" } @out);
 			$STATE->on_lookup_idle if $STATE && !%RUN_CMD;    # odlozeni automatski rip
+			$STATE->on_jobs_changed if $STATE;
 		},
 	);
 	$pid = $job->pid;
@@ -220,35 +221,47 @@ sub _play {
 	return (1, undef);
 }
 
+# Zivi procesi koji mogu da drze drajv (cd-info, cd-paranoia, cyanrip, eject, i oni koji jos
+# umiru posle kill-a); premestanja u biblioteku (cp) ne diraju drajv.
+sub _drive_procs {
+	my $n = Plugins::AudioCD::Jobs::running_count() - scalar(keys %MOVING_JOB);
+	return $n > 0 ? $n : 0;
+}
+
 # Izbacivanje: ioctl, a ako ne uspe, alat `eject` preko Jobs-a (Ruling 1).
+# $done->() se zove tacno jednom kad je izbacivanje pokusano ili napusteno (State: eject_pending).
 sub _eject {
-	my ($was_busy) = @_;
+	my ($was_busy, $done) = @_;
+	my $fired = 0;
+	my $finish = sub { return if $fired++; eval { $done->() if $done; 1 } or $log->warn("eject done: $@") };
 	my $dev = _device();
 	my $do = sub {
 		my ($ok, $err) = Plugins::AudioCD::Drive::eject($dev);
-		return if $ok;
+		return $finish->() if $ok;
 		my $tool = Plugins::AudioCD::Tools::find('eject');
 		unless ($tool) {
 			$log->warn("izbacivanje nije uspelo ($err), alat eject ne postoji");
-			return;
+			return $finish->();
 		}
-		Plugins::AudioCD::Jobs->spawn(
-			argv    => [ Plugins::AudioCD::Jobs::low_prio($tool, $dev) ],
-			on_exit => sub { $log->warn("eject $dev: status $_[0]") if $_[0] },
-		);
+		my $job = eval {
+			Plugins::AudioCD::Jobs->spawn(
+				argv    => [ Plugins::AudioCD::Jobs::low_prio($tool, $dev) ],
+				on_exit => sub { $log->warn("eject $dev: status $_[0]") if $_[0]; $finish->() },
+			);
+		};
+		$finish->() unless $job;
 	};
 	return $do->() unless $was_busy;
 	# Posao je upravo prekinut: CDROMEJECT tek kad nijedan proces vise ne drzi drajv (cd-info,
-	# cd-paranoia, cyanrip umiru asinhrono), inace bi ioctl blokirao LMS. Premestanja ne diraju drajv.
+	# cd-paranoia, cyanrip umiru asinhrono), inace bi ioctl blokirao LMS.
 	my $tries = 0;
 	my $wait;
 	$wait = sub {
-		my $drive_jobs = Plugins::AudioCD::Jobs::running_count() - scalar(keys %MOVING_JOB);
-		if ($drive_jobs <= 0) { undef $wait; return $do->() }
+		if (_drive_procs() == 0) { undef $wait; return $do->() }
 		if (++$tries > EJECT_TRIES) {
 			undef $wait;
 			$log->warn("izbacivanje odustalo: procesi i dalje drze drajv");
-			return;
+			return $finish->();
 		}
 		_timer(EJECT_DELAY, $wait);
 	};
@@ -308,11 +321,12 @@ sub initPlugin {
 		$cdir = $play;
 	}
 	_clear_dir($cdir);
-	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, device => _device(), secure => $prefs->get('secureCache'));
+	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, device => _device(), secure => $prefs->get('secureCache'),
+		on_change => sub { $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(
 		history_file => catdir($base, 'history.json'),
-		on_change    => sub { $STATE->on_rip_change if $STATE },
+		on_change    => sub { return unless $STATE; $STATE->on_rip_change; $STATE->on_jobs_changed },
 	);
 	my $n = Plugins::AudioCD::Ripper::cleanup_stale(_rips_dir());
 	$log->warn("obrisano $n ostataka prekinutih rip-ova") if $n;
@@ -342,6 +356,7 @@ sub initPlugin {
 		kill_all      => \&Plugins::AudioCD::Jobs::kill_all,
 		drive_status  => \&Plugins::AudioCD::Drive::drive_status,
 		lookup_busy   => sub { %RUN_CMD ? 1 : 0 },
+		drive_procs   => \&_drive_procs,
 		kill_lookup   => sub { $_->kill for values %RUN_CMD },
 		log           => sub { my ($lvl, $m) = @_; $lvl eq 'warn' ? $log->warn($m) : $log->info($m) },
 		on_change     => sub {
@@ -380,7 +395,7 @@ sub initPlugin {
 sub _poll {
 	my ($first) = @_;
 	# ioctl na drajvu koji cita drugi proces (cd-info, cd-paranoia, cyanrip) blokira LMS: tada se preskace
-	if ($STATE && $STATE->drive_busy eq 'none' &&($first || $prefs->get('polling'))) {
+	if ($STATE && $STATE->drive_busy eq 'none' && ($first || $prefs->get('polling'))) {
 		my ($code, $err) = Plugins::AudioCD::Drive::drive_status(_device());
 		eval { $STATE->on_drive_status($code, $err); 1 } or $log->error("polling: $@");
 	}

@@ -13,13 +13,14 @@ package Plugins::AudioCD::State;
 #   rips_dir    => sub -> podrazumevani folder za rip-ove
 #   fetch_cover => sub(\@urls, $dest_path, $cb->($ok))
 #   play        => sub($client_id, \@urls, $start_index) -> ($ok, $err)
-#   eject       => sub($was_busy)
+#   eject       => sub($was_busy, $done)    $done->() kad CDROMEJECT zavrsi ili odustane
 #   missing_tools => sub -> imena alata koji nedostaju
 #   notify      => sub($history_entry)       kraj ripa (kad je pref notify)
 #   kill_all    => sub                        gasenje: ubija sve procese
 #   drive_status => sub($dev) -> ($code, $err)  provera za eject_event (ioctl)
 #   lookup_busy => sub -> 0|1                 radi li cd-info (Lookup), koji drzi drajv
 #   kill_lookup => sub                        ubija cd-info (asinhrono)
+#   drive_procs => sub -> broj                zivih procesa na drajvu (i onih koji jos umiru)
 #   on_change   => sub                        stanje promenjeno
 #   log         => sub($nivo, $poruka)
 #
@@ -54,6 +55,7 @@ my %NOOP = (
 	drive_status  => sub { (undef, 'io') },
 	lookup_busy   => sub { 0 },
 	kill_lookup   => sub { },
+	drive_procs   => sub { 0 },
 	on_change     => sub { },
 	log           => sub { },
 );
@@ -125,12 +127,13 @@ sub _cache_complete {
 	return 1;
 }
 
-# 'rip' | 'cache' | 'lookup' (cd-info) | 'none'
+# 'rip' | 'cache' | 'lookup' (cd-info) | 'process' (proces na drajvu jos umire) | 'none'
 sub drive_busy {
 	my ($self) = @_;
 	return 'rip'    if $self->{d}{ripper}->busy;
 	return 'cache'  if $self->{d}{cache}->busy;
 	return 'lookup' if $self->{d}{lookup_busy}->();
+	return 'process' if $self->{d}{drive_procs}->() > 0;
 	return 'none';
 }
 
@@ -159,6 +162,7 @@ sub _drop_disc {
 sub on_load {
 	my ($self, %o) = @_;
 	return _err('stopped') if $self->{stopped};
+	return _err('eject_pending') if $self->{eject_pending};
 	# zauzet drajv: bez read_toc ioctl-a (blokirao bi LMS); disk se proverava kad posao zavrsi
 	return _err('drive_busy', busy => $self->drive_busy) if $self->drive_busy ne 'none';
 	my ($toc, $err) = eval { $self->{d}{read_toc}->($self->_device) };
@@ -274,6 +278,7 @@ sub _fetch_cover {
 
 sub _auto_rip {
 	my ($self) = @_;
+	return if $self->{eject_pending};
 	return unless $self->_pref('autoRip');
 	my $id = $self->{discid};
 	# Isti disk posle restarta ili ponovnog ubacivanja se ne ripuje ponovo.
@@ -314,14 +319,35 @@ sub eject {
 	my ($self) = @_;
 	my $was_busy = $self->drive_busy ne 'none' ? 1 : 0;
 	$self->on_eject;
-	eval { $self->{d}{eject}->($was_busy); 1 } or return _err('eject', message => "$@");
+	# Dok odlozeni CDROMEJECT ne zavrsi, disk se ne vraca u stanje (polling, load, autoRip miruju).
+	my $token = ++$self->{eject_seq};
+	$self->{eject_pending} = $token;
+	my $done = sub {
+		delete $self->{eject_pending} if ($self->{eject_pending} // 0) == $token;
+		return;
+	};
+	eval { $self->{d}{eject}->($was_busy, $done); 1 } or do {
+		my $e = $@;
+		$done->();
+		return _err('eject', message => "$e");
+	};
 	return (1, undef);
+}
+
+# Kraj ili promena posla (Cache, Ripper, cd-info): odlozena provera eject_event-a radi i bez polling-a.
+sub on_jobs_changed {
+	my ($self) = @_;
+	return unless $self->{recheck};
+	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
+	my ($code, $err) = eval { $self->{d}{drive_status}->($self->_device) };
+	$self->on_drive_status($code, $err);
+	return;
 }
 
 # Polling: status drajva (CDS_*) ili greska. Ne radi nista dok traje posao.
 sub on_drive_status {
 	my ($self, $code, $err) = @_;
-	return if $self->{stopped} || $self->drive_busy ne 'none';
+	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
 	my $ok   = defined $code && $code == CDS_DISC_OK ? 1 : 0;
 	my $prev = $self->{last_drive};
 	$self->{last_drive} = $ok;

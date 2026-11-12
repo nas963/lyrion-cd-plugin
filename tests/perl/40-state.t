@@ -128,6 +128,7 @@ sub world {
 		kills   => 0,
 		reads   => 0,
 		cdinfo  => 0,
+		procs   => 0,
 		lookup_kills => 0,
 		drive   => [ 4, undef ],
 		drive_calls => 0,
@@ -148,12 +149,13 @@ sub world {
 		rips_dir    => sub { "$w->{dir}/rips" },
 		fetch_cover => sub { push @{ $w->{covers} }, [@_] },
 		play        => sub { push @{ $w->{plays} }, [@_]; return (1, undef) },
-		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0] },
+		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0]; $w->{eject_done} = $_[1] },
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
 		kill_all    => sub { $w->{kills}++ },
 		drive_status => sub { $w->{drive_calls}++; @{ $w->{drive} } },
 		lookup_busy => sub { $w->{cdinfo} },
+		drive_procs => sub { $w->{procs} },
 		kill_lookup => sub { $w->{lookup_kills}++ },    # asinhrono: proces jos zivi
 	);
 	return $w;
@@ -759,6 +761,84 @@ sub loaded {
 	is($err->{error}, 'bad_args', 'rip: folder sa .. odbijen');
 	($ok2, $err) = $w->{state}->request_rip(dir => '/mnt/x/..');
 	is($err->{error}, 'bad_args', 'rip: folder koji se zavrsava sa .. odbijen');
+}
+
+# ---------- fix round 2: eject_pending, procesi na drajvu, recheck bez polling-a ----------
+{
+	# Eject tokom ripa: dok odlozeni CDROMEJECT ne zavrsi, polling/load/autoRip ne vracaju disk
+	my $w = loaded(prefs => { autoRip => 1 });
+	my $st = $w->{state};
+	$st->on_drive_status(4, undef);
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'autoRip pokrenuo rip');
+	$st->eject;
+	is_deeply($w->{eject_args}, [1], 'eject tokom ripa: odlozen');
+	is(ref $w->{eject_done}, 'CODE', 'eject dobija callback za kraj');
+	$w->{ripper}{current} = undef;    # cyanrip umro, drajv "slobodan" pre CDROMEJECT-a
+	my $reads = $w->{reads};
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, $reads, 'eject_pending: polling ne cita disk');
+	is($st->snapshot->{status}, 'empty', 'eject_pending: ostaje empty');
+	my ($ok, $err) = $st->on_load(force => 1);
+	is($err->{error}, 'eject_pending', 'eject_pending: load odbijen');
+	is($w->{reads}, $reads, 'eject_pending: load bez ioctl-a');
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'eject_pending: otkazan rip se ne pokrece ponovo');
+	$w->{eject_done}->();
+	$st->on_drive_status(2, undef);    # fioka otvorena
+	is($st->snapshot->{status}, 'empty', 'posle eject-a: empty');
+	$st->on_drive_status(4, undef);    # novi disk
+	is($w->{reads}, $reads + 1, 'posle zavrsenog eject-a disk se ponovo cita');
+
+	# eject bez posla: callback takodje gasi eject_pending
+	$w = loaded();
+	$w->{state}->eject;
+	is_deeply($w->{eject_args}, [0], 'eject bez posla: odmah');
+	$w->{eject_done}->();
+	($ok, $err) = $w->{state}->on_load;
+	ok($ok, 'posle eject callback-a load radi');
+}
+
+{
+	# proces na drajvu jos umire (npr. ubijen cd-paranoia): drajv zauzet, nema ioctl-a
+	my $w = loaded();
+	my $st = $w->{state};
+	$w->{procs} = 1;
+	is($st->drive_busy, 'process', 'ziv proces na drajvu -> drive_busy process');
+	my $calls = $w->{drive_calls};
+	$st->on_eject_event;
+	is($w->{drive_calls}, $calls, 'eject_event dok proces umire: nema ioctl-a');
+	my $reads = $w->{reads};
+	my ($ok, $err) = $st->on_load(force => 1);
+	is($err->{error}, 'drive_busy', 'load dok proces umire -> drive_busy');
+	is($w->{reads}, $reads, 'load dok proces umire: nema ioctl-a');
+	$w->{procs} = 0;
+	$w->{drive} = [ 2, undef ];
+	$st->on_jobs_changed;
+	is($st->snapshot->{status}, 'empty', 'odlozena provera posle smrti procesa');
+}
+
+{
+	# odlozena provera radi i bez polling-a: okida je kraj posla (on_jobs_changed)
+	my $w = loaded(prefs => { polling => 0 });
+	my $st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$st->on_eject_event;
+	my $calls = $w->{drive_calls};
+	$w->{drive} = [ 2, undef ];
+	$st->on_jobs_changed;
+	is($w->{drive_calls}, $calls, 'on_jobs_changed dok kes radi: nista');
+	is($st->snapshot->{status}, 'ready', 'kes jos radi: stanje ostaje');
+	$w->{cache}{busy} = 0;
+	$st->on_jobs_changed;
+	is($w->{drive_calls}, $calls + 1, 'kraj posla: jedna provera drajva');
+	is($st->snapshot->{status}, 'empty', 'kraj posla: disk izvadjen -> empty');
+	$st->on_jobs_changed;
+	is($w->{drive_calls}, $calls + 1, 'provera samo jednom');
+
+	# bez odlozene provere on_jobs_changed ne dira drajv
+	$w = loaded();
+	$calls = $w->{drive_calls};
+	$w->{state}->on_jobs_changed;
+	is($w->{drive_calls}, $calls, 'bez odlozene provere: nema ioctl-a');
 }
 
 done_testing;
