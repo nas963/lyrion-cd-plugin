@@ -1,0 +1,7 @@
+PLUGIN_AUDIOCD
+	EN	Audio CD
+	SR	Audio CD
+
+PLUGIN_AUDIOCD_DESC
+	EN	Play and rip audio CDs from the server's optical drive.
+	SR	Slušanje i rip audio CD-ova iz optičkog drajva servera.
