@@ -431,6 +431,20 @@ sub mk {
     my $free = $R->can('default_df')->('.');
     ok(defined $free && $free > 0, 'default_df vraca bajtove') or diag explain $free;
     is($R->can('default_df')->("$root/nema/takvog"), undef, 'default_df za nepostojeci folder je undef');
+
+    # LMS vezuje STDERR za svoj logger (tie bez OPEN): dete ne sme da pukne
+    {
+        package TiedNoOpenDf;
+        sub TIEHANDLE { bless {}, shift }
+        sub PRINT { 1 }
+        sub PRINTF { 1 }
+    }
+    my $parent = $$;
+    tie *STDERR, 'TiedNoOpenDf';
+    my $f2 = $R->can('default_df')->('.');
+    untie *STDERR;
+    exit 0 if $$ != $parent;    # zastita: dete ne sme da nastavi test
+    ok(defined $f2 && $f2 > 0, 'default_df sa vezanim STDERR vraca bajtove') or diag explain $f2;
 }
 
 # ---- loši argumenti ----

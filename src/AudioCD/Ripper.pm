@@ -64,8 +64,13 @@ sub default_df {
     local $ENV{LC_ALL} = 'C';
     my $pid = open(my $fh, '-|') // return undef;
     if (!$pid) {
-        open(STDERR, '>', '/dev/null');
-        exec { $df } $df, '-Pk', _fs($dir) or POSIX::_exit(127);
+        # dete nikad ne sme da izadje iz ovog bloka (u LMS-u bi nastavilo kao kopija servera)
+        eval {
+            untie *STDERR if tied *STDERR;    # LMS vezuje STDERR za logger (tie bez OPEN)
+            open(STDERR, '>', '/dev/null');
+            exec { $df } $df, '-Pk', _fs($dir);
+        };
+        POSIX::_exit(127);
     }
     my @lines = <$fh>;
     close $fh;

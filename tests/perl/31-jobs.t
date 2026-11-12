@@ -235,4 +235,56 @@ sub alive { my $p = shift; return kill(0, $p) && !_zombie($p) }
 	$J->can('set_io_backend')->($orig);
 }
 
+# ---- LMS vezuje (tie) STDOUT/STDERR za svoj logger (Slim::Utils::Log::Trapper bez OPEN) ----
+{
+	package TiedNoOpen;
+	sub TIEHANDLE { bless {}, shift }
+	sub PRINT { 1 }
+	sub PRINTF { 1 }
+	package main;
+	tie *STDERR, 'TiedNoOpen';
+	tie *STDOUT, 'TiedNoOpen';
+	my ($lines, $status) = run_job(argv => ['sh', '-c', 'echo out; echo err >&2']);
+	untie *STDOUT;
+	untie *STDERR;
+	is($status, 0, 'vezan STDERR/STDOUT: dete radi (status 0)');
+	is_deeply([ sort @$lines ], [ 'err', 'out' ], 'vezan STDERR/STDOUT: izlaz stize u pipe');
+}
+
+# ---- backend sa child hook-om (LMS/EV sam pokuplja decu, waitpid bi dao -1) ----
+{
+	my $orig = $J->can('_backend')->();
+	my @watch;
+	$J->can('set_io_backend')->({ %$orig, child => sub { push @watch, [@_]; return 'h' } });
+	my ($status, @lines);
+	my $job = $J->spawn(argv => ['sh', '-c', 'echo x; exit 3'], on_line => sub { push @lines, $_[0] }, on_exit => sub { $status = $_[0] });
+	is(scalar @watch, 1, 'child hook pozvan jednom');
+	is($watch[0][0], $job->pid, 'child hook dobija pid');
+	# EOF stize, ali bez statusa iz hook-a posao jos nije gotov
+	my $t0 = time;
+	$J->can('_run_once')->(0.1) while !grep({ $_ eq 'x' } @lines) && time - $t0 < 5;
+	$J->can('_run_once')->(0.2) for 1 .. 3;
+	ok($job->is_running, 'posle EOF-a ceka status iz child hook-a');
+	ok(!defined $status, 'on_exit jos nije pozvan');
+	# "EV" pokuplja dete i javlja sirov wait status
+	waitpid($job->pid, 0);
+	$watch[0][1]->($?);
+	is($status, 3, 'status iz child hook-a');
+	ok(!$job->is_running, 'posao gotov');
+	is_deeply(\@lines, ['x'], 'izlaz procitan');
+
+	# status stigne pre EOF-a: posao se zavrsava tek na EOF (sav izlaz procitan)
+	@watch = ();
+	my @l2;
+	my $st2;
+	my $j2 = $J->spawn(argv => ['sh', '-c', 'echo y; exit 0'], on_line => sub { push @l2, $_[0] }, on_exit => sub { $st2 = $_[0] });
+	waitpid($j2->pid, 0);
+	$watch[0][1]->($?);
+	ok(!defined $st2, 'status pre EOF-a: jos se cita izlaz');
+	ok($J->can('run_loop_for_tests')->(5), 'posao zavrsen posle EOF-a');
+	is($st2, 0, 'status 0');
+	is_deeply(\@l2, ['y'], 'izlaz pre zavrsetka');
+	$J->can('set_io_backend')->($orig);
+}
+
 done_testing;

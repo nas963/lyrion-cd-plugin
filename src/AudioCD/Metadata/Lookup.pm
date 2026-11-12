@@ -227,8 +227,9 @@ sub _build {
 	};
 }
 
+# lookup($toc, $cb, offline => 1): offline preskace MusicBrainz i GnuDB (samo CD-Text ili genericki).
 sub lookup {
-	my ($self, $toc, $cb) = @_;
+	my ($self, $toc, $cb, %opt) = @_;
 	my $ids = {
 		discid => Plugins::AudioCD::DiscId::musicbrainz_id($toc),
 		cddbid => Plugins::AudioCD::DiscId::cddb_id($toc),
@@ -277,6 +278,8 @@ sub lookup {
 
 	# Ukupni watchdog: sta god da visi, lookup zavrsava genericki.
 	$self->{timer}->(LOOKUP_TIMEOUT, sub { $fallback_generic->() });
+
+	if ($opt{offline}) { $try_cdtext->(); return }
 
 	my $mb_done = sub {
 		my ($body, $status) = @_;

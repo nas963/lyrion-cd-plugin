@@ -9,3 +9,15 @@ PLUGIN_AUDIOCD_DESC
 PLUGIN_AUDIOCD_TRACK_NOT_READY
 	EN	The CD track is not ready yet.
 	SR	Pesma sa CD-a još nije spremna.
+
+PLUGIN_AUDIOCD_RIP_DONE
+	EN	Rip finished
+	SR	Rip završen
+
+PLUGIN_AUDIOCD_RIP_WARNING
+	EN	Rip finished with AccurateRip warning
+	SR	Rip završen uz AccurateRip upozorenje
+
+PLUGIN_AUDIOCD_RIP_FAILED
+	EN	Rip failed
+	SR	Rip nije uspeo

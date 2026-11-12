@@ -172,6 +172,23 @@ sub run {
 	ok((grep { $_ eq '/dev/cdrom' } @{ $w->{argv} }), 'cd-info dobija device');
 }
 
+# --- offline: bez MusicBrainz-a i GnuDB-a, samo CD-Text ili genericki ---
+{
+	my $w = world(mb => [ 200, slurp('mb-fuzzy-real.json') ], query => [ 200, slurp('gnudb-query-200.txt') ],
+		read => [ 200, slurp('gnudb-read.txt') ], cdinfo => slurp('cdinfo-cdtext.txt'));
+	my ($res, $n) = (undef, 0);
+	$w->{lookup}->lookup($toc, sub { $res = $_[0]; $n++ }, offline => 1);
+	is($n, 1, 'offline: callback tacno jednom');
+	is(scalar @{ $w->{urls} }, 0, 'offline: nema HTTP zahteva');
+	is($res->{disc}{source}, 'cdtext', 'offline: CD-Text');
+
+	$w = world(mb => [ 200, slurp('mb-fuzzy-real.json') ], cdinfo => slurp('cdinfo-none.txt'));
+	($res, $n) = (undef, 0);
+	$w->{lookup}->lookup($toc, sub { $res = $_[0]; $n++ }, offline => 1);
+	is(scalar @{ $w->{urls} }, 0, 'offline bez CD-Text-a: nema HTTP zahteva');
+	is($res->{disc}{source}, 'generic', 'offline bez CD-Text-a: genericki');
+}
+
 # --- (3) fuzzy sa tacno jednim kandidatom ---
 {
 	my $body = JSON::PP->new->utf8->decode(slurp('mb-fuzzy-real.json'));

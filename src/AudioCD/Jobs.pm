@@ -6,6 +6,8 @@ package Plugins::AudioCD::Jobs;
 #
 # Backend: { add_read => sub($fh, $cb), remove_read => sub($fh),
 #            timer => sub($sekundi, $cb) -> $handle, cancel_timer => sub($handle) (opciono) }
+#   child => sub($pid, $cb->($wait_status)) (opciono): event loop koji sam pokuplja decu (LMS-ov EV
+#   ima SIGCHLD handler pa bi waitpid vratio -1) javlja sirov wait status; bez njega Jobs radi waitpid.
 # Podrazumevani backend je mali select() loop koji pokrece run_loop_for_tests().
 
 use strict;
@@ -142,6 +144,8 @@ sub spawn {
 			POSIX::setpgid(0, 0);
 			$SIG{PIPE} = 'DEFAULT';    # LMS moze da ih ignorise, a ignorisanje se nasledjuje kroz exec
 			$SIG{CHLD} = 'DEFAULT';
+			# LMS vezuje STDOUT/STDERR za svoj logger (tie bez OPEN): open na njima bi pukao
+			for my $h (\*STDIN, \*STDOUT, \*STDERR) { untie *$h if tied *$h }
 			close $rd;
 			open(STDIN, '<', '/dev/null');
 			open(STDOUT, '>&', $wr) or die "dup stdout: $!\n";
@@ -172,6 +176,10 @@ sub spawn {
 	}, $class;
 	$JOBS{$pid} = $job;
 	$be->{add_read}->($rd, sub { $job->_on_readable });
+	if ($be->{child}) {
+		$job->{child_watch} = 1;
+		$be->{child}->($pid, sub { $job->_on_child($_[0]) });
+	}
 	return $job;
 }
 
@@ -218,10 +226,23 @@ sub _on_eof {
 	return;
 }
 
+# Status iz child hook-a; posao se zavrsava kad je i izlaz procitan do kraja (EOF).
+sub _on_child {
+	my ($self, $raw) = @_;
+	return if $self->{done};
+	$self->{exit_raw} = defined $raw ? $raw : -1;
+	$self->_try_reap if $self->{eof};
+	return;
+}
+
 # EOF pipe-a ne znaci da je proces gotov (moze da zatvori stdout i nastavi): proveravamo tajmerom
 sub _try_reap {
 	my ($self) = @_;
 	return if $self->{done};
+	if ($self->{child_watch}) {
+		$self->_finish($self->{exit_raw} < 0 ? 255 : _status($self->{exit_raw})) if defined $self->{exit_raw};
+		return;    # status stize iz child hook-a
+	}
 	my $r = waitpid($self->{pid}, POSIX::WNOHANG());
 	if ($r == $self->{pid}) {
 		$self->_finish(_status($?));
