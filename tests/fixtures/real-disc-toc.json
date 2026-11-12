@@ -1,0 +1,20 @@
+{
+  "comment": "TOC pravog diska iz drajva (cd-paranoia -Q); lba bez +150 ofseta. ID-jevi izracunati nezavisnom Python implementacijom; disc ID nije (tacno) u MusicBrainz bazi, pa nema online potvrde.",
+  "toc": {
+    "first": 1, "last": 9, "leadout": 194376,
+    "tracks": [
+      {"n": 1, "lba": 0, "data": 0},
+      {"n": 2, "lba": 21913, "data": 0},
+      {"n": 3, "lba": 38012, "data": 0},
+      {"n": 4, "lba": 57056, "data": 0},
+      {"n": 5, "lba": 86847, "data": 0},
+      {"n": 6, "lba": 97575, "data": 0},
+      {"n": 7, "lba": 115358, "data": 0},
+      {"n": 8, "lba": 132979, "data": 0},
+      {"n": 9, "lba": 158424, "data": 0}
+    ]
+  },
+  "musicbrainz_id": "dBFBpdDGyUnu4ofAwN5ZrxozKwM-",
+  "cddb_id": "6a0a1f09",
+  "mb_toc_string": "1 9 194526 150 22063 38162 57206 86997 97725 115508 133129 158574"
+}
