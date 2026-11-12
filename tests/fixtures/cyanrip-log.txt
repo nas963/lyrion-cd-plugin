@@ -1,0 +1,111 @@
+cyanrip 0.9.0 (release)
+System device:  /dev/cdrom
+Device model:   ASUS     SDRW-08U7M-U     A112 SCSI CD-ROM
+Offset:         +0 samples
+Overread:       +0 frames
+Overread mode:  fill with silence in lead-in/lead-out
+Speed:          default (unchangeable)
+C2 errors:      supported by drive
+Paranoia level: none
+Frame retries:  10
+HDCD decoding:  disabled
+Album Art:      none
+Outputs:        flac
+Disc number:    1
+Total discs:    1
+Disc tracks:    9
+Tracks to rip:  1
+DiscID:         dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+CDDB ID:        6A0A1F09
+Disc MCN:       0000000000000
+Album:          The Story: Of Jazz
+Album artist:   Bobby McFerrin
+AccurateRip:    found
+Total time:     00:43:11.258
+
+Gaps:
+    None signalled
+
+Tracks:
+Track 1 ripped and encoded successfully!
+Summary:
+
+  Integrated loudness:
+    I:         -19.9 LUFS
+    Threshold: -30.1 LUFS
+
+  Loudness range:
+    LRA:         5.9 LU
+    Threshold: -40.1 LUFS
+    LRA low:   -22.5 LUFS
+    LRA high:  -16.7 LUFS
+
+  True peak:
+    Peak:        0.3 dBFS
+
+  Preemphasis:   none detected
+
+  Properties:
+    Duration:    00:04:52.240
+    Samples:     12884844
+    Frames:      21913
+    Pregap LSN:  none
+    Start LSN:   0
+    End LSN:     21912
+
+  EAC CRC32:     C2526AF0
+  Accurip:       disc found in database (max confidence: 15)
+    Accurip v1:  7D75D046 (not found, either a new pressing, or bad rip)
+    Accurip v2:  02BA6BE2 (not found, either a new pressing, or bad rip)
+    Accurip 450: 6B879E77 (not found)
+
+  Metadata:
+    title:                         Moon: Ćao=x
+    track:                         1
+    disc_mcn:                      0000000000000
+    media_type:                    CD
+    cddb:                          6A0A1F09
+    tracktotal:                    9
+    comment:                       cyanrip 0.9.0
+    discid:                        dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+    album:                         The Story: Of Jazz
+    album_artist:                  Bobby McFerrin
+    date:                          1991
+    totaldiscs:                    1
+    disc:                          1
+    musicbrainz_albumid:           11111111-1111-1111-1111-111111111111
+    artist:                        Bobby McFerrin
+    musicbrainz_trackid:           22222222-2222-2222-2222-222222222222
+    creation_time:                 2026-11-12T09:31:41
+    REPLAYGAIN_TRACK_GAIN:         1.91 dB
+    R128_TRACK_GAIN:               1769
+    REPLAYGAIN_TRACK_RANGE:        5.87 dB
+    REPLAYGAIN_TRACK_PEAK:         1.040219
+    REPLAYGAIN_REFERENCE_LOUDNESS: -18.00 LUFS
+
+  File(s):
+    /tmp/audiocd-out/1.flac
+
+Album Loudness Summary:
+
+  Integrated loudness:
+    I:         -19.9 LUFS
+    Threshold: -30.1 LUFS
+
+  Loudness range:
+    LRA:         5.9 LU
+    Threshold: -40.1 LUFS
+    LRA low:   -22.5 LUFS
+    LRA high:  -16.7 LUFS
+
+  True peak:
+    Peak:        0.3 dBFS
+
+Tracks ripped accurately: 0/9
+
+Paranoia status counts:
+  READ:          912
+
+Ripping errors: 0
+Ripping finished at 2026-11-12T09:34:12
+Log FUN512: w_BY8PVbGMu1l3kWbAM6eZ.2KoFdJ50bzSP09Qk9e4wEM4IXqolrBQ1PwUIs6_U7Ed9qCiLPKOpNbyB0GwCKWA

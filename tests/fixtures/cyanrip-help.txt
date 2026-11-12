@@ -1,0 +1,46 @@
+# cyanrip -V (/usr/bin/cyanrip, Ubuntu paket 0.9.2-1build3)
+cyanrip 0.9.0 (release)
+
+cyanrip 0.9.0 (release) help:
+
+  Ripping options:
+    -d <path>             Set device path
+    -s <int>              CD Drive offset in samples (default: 0)
+    -r <int>              Maximum number of retries for frames and repeated rips (default: 10)
+    -Z <int>              Rips tracks until their checksums match <int> number of times. For very damaged CDs.
+    -S <int>              Set drive speed (default: unset)
+    -p <number>=<string>  Track pregap handling (default: default)
+    -P <int>              Paranoia level, 3 to 0 inclusive, default: 3
+    -O                    Enable overreading into lead-in and lead-out (may freeze if unsupported by drive)
+    -H                    Enable HDCD decoding. Do this if you're sure disc is HDCD
+    -E                    Force CD deemphasis
+    -W                    Disable automatic CD deemphasis
+    -K                    Disable ReplayGain tagging
+
+  Output options:
+    -o <string>           Comma separated list of outputs
+    -b <kbps>             Bitrate of lossy files in kbps
+    -D <string>           Directory naming scheme, by default its "{album}{if #releasecomment# > #0# (|releasecomment|)} [{format}]"
+    -F <string>           Track naming scheme, by default its "{if #totaldiscs# > #1#|disc|.}{track} - {title}"
+    -L <string>           Log file name scheme, by default its "{album}{if #totaldiscs# > #1# CD|disc|}"
+    -M <string>           CUE file name scheme, by default its "{album}{if #totaldiscs# > #1# CD|disc|}"
+    -l <list>             Select which tracks to rip (default: all)
+    -T <string>           Filename sanitation: simple, os_simple, unicode (default), os_unicode
+
+  Metadata options:
+    -I                    Only print CD and track info
+    -a <string>           Album metadata, key=value:key=value
+    -t <number>=<string>  Track metadata, can be specified multiple times
+    -R <int>/<string>     Sets the MusicBrainz release to use, either as an index starting from 1 or an ID string
+    -c <int>/<int>        Tag multi-disc albums, syntax is disc/totaldiscs
+    -C <title>=<path>     Set cover image path, type may be "Name" or a "track_number"
+    -N                    Disables MusicBrainz lookup and ignores lack of manual metadata
+    -A                    Disables AccurateRip database query and validation
+    -U                    Disables Cover art DB database query and retrieval
+    -G                    Disables embedding of cover art images
+
+  Misc. options:
+    -Q                    Eject tray once successfully done
+    -V                    Print program version
+    -h                    Print options help
+    -f                    Find drive offset (requires a disc with an AccuRip DB entry)
