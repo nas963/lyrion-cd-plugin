@@ -60,7 +60,8 @@ my ($STATE, $CACHE, $RIPPER, $META, $POLL);
 my %TIMERS;      # aktivni LMS tajmeri ovog plugina (gase se u shutdownPlugin)
 my %CHILD_W;     # EV child watcher-i po pid-u
 my %RUN_CMD;     # cd-info poslovi: drze drajv, pa bi ioctl (polling) blokirao LMS dok traju
-my (%MOVING, %MOVING_JOB);    # premestanja u biblioteku u toku (po id-u rip-a) i njihovi cp poslovi
+my (%MOVING, %MOVING_JOB, %MOVE_STATE);    # premestanja u biblioteku u toku (po id-u rip-a), njihovi cp poslovi i ishod (moving / last_error / warning)
+use constant MOVE_LIMIT => 1800;    # s, cp se ubija posle ovoliko
 
 sub getDisplayName { return 'PLUGIN_AUDIOCD' }
 
@@ -394,6 +395,7 @@ sub shutdownPlugin {
 	$STATE->shutdown if $STATE;    # Jobs::kill_all, Cache::clear, ostaci rip-ova
 	%CHILD_W = ();
 	%RUN_CMD = ();
+	%MOVING = %MOVING_JOB = %MOVE_STATE = ();
 	return;
 }
 
@@ -501,7 +503,7 @@ sub _cli_edit {
 
 sub _cli_history {
 	my ($request) = @_;
-	$request->addResult(history => $RIPPER->history);
+	$request->addResult(history => [ map { my $m = $MOVE_STATE{ $_->{id} // '' }; $m ? { %$_, move => { %$m } } : $_ } @{ $RIPPER->history } ]);
 	$request->setStatusDone;
 }
 
@@ -525,31 +527,42 @@ sub _cli_move {
 	# Asinhrono: kopiranje na drugi disk (EXDEV) ide u spoljnom procesu (cp), LMS petlja ne blokira.
 	# CLI odmah odgovara; kraj premestanja azurira istoriju i stanje, pa skenira samo taj folder.
 	$MOVING{$id} = 1;
-	my $started = eval {
-		Plugins::AudioCD::Library::move_async($e->{path}, $dest,
-			spawn   => sub {
-				my ($argv, $on_exit) = @_;
-				$MOVING_JOB{$id} = Plugins::AudioCD::Jobs->spawn(
-					argv    => [ Plugins::AudioCD::Jobs::low_prio(@$argv) ],
-					on_exit => sub { delete $MOVING_JOB{$id}; $on_exit->(@_) },
-				);
-			},
-			on_done => sub {
-				my ($ok, $merr) = @_;
-				delete $MOVING{$id};
-				unless ($ok) { $log->error("premestanje u biblioteku: " . ($merr || 'move_failed')); return }
-				$RIPPER->update_path($id, $dest);
+	$MOVE_STATE{$id} = { moving => 1 };
+	my ($timed_out, @sync);
+	Plugins::AudioCD::Library::move_async($e->{path}, $dest,
+		rips_root => _rips_dir(),
+		spawn     => sub {
+			my ($argv, $on_exit) = @_;
+			my $job = Plugins::AudioCD::Jobs->spawn(
+				argv    => [ Plugins::AudioCD::Jobs::low_prio(@$argv) ],
+				on_exit => sub { delete $MOVING_JOB{$id}; $on_exit->(@_) },
+			);
+			$MOVING_JOB{$id} = $job;
+			_timer(MOVE_LIMIT, sub { $timed_out = 1; $job->kill if $job->is_running });
+		},
+		on_done => sub {
+			my ($ok, $merr, $warn) = @_;
+			@sync = @_;
+			delete $MOVING{$id};
+			unless ($ok) {
+				$merr = 'timeout' if $timed_out;
+				$MOVE_STATE{$id} = { last_error => $merr || 'move_failed' };
+				$log->error("premestanje u biblioteku: " . ($merr || 'move_failed'));
 				$STATE->on_rip_change if $STATE;
-				Slim::Control::Request::executeRequest(undef, Plugins::AudioCD::Library::rescan_cmd($dest));
-			},
-		);
-		1;
-	};
-	unless ($started) {
-		delete $MOVING{$id};
-		return _done($request, undef, { error => 'move_failed' });
-	}
-	_done($request, 1, undef, started => 1, dest => $dest);
+				return;
+			}
+			# uspeh (i sa upozorenjem): istorija, stanje i skeniranje samo tog foldera
+			$MOVE_STATE{$id} = $warn ? { warning => $warn } : {};
+			delete $MOVE_STATE{$id} unless %{ $MOVE_STATE{$id} };
+			$log->warn("premestanje u biblioteku: $warn") if $warn;
+			$RIPPER->update_path($id, $dest);
+			$STATE->on_rip_change if $STATE;
+			Slim::Control::Request::executeRequest(undef, Plugins::AudioCD::Library::rescan_cmd($dest));
+		},
+	);
+	# greska koja je nastala odmah (busy, exists, mkdir...) ide u odgovor
+	return _done($request, undef, { error => $sync[1] || 'move_failed' }) if @sync && !$sync[0];
+	_done($request, 1, undef, started => 1, dest => $dest, $sync[2] ? (warning => $sync[2]) : ());
 }
 
 1;

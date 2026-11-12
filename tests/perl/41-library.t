@@ -56,34 +56,12 @@ is scalar(@calls), 1, 'move: jedan rename';
 ok exists_p("$dest/01.flac") && exists_p("$dest/sub/cover.jpg"), 'move: sadrzaj na odredistu';
 ok !exists_p($src), 'move: izvor nestao';
 
-# EXDEV: kopija + brisanje izvora
+# EXDEV bez spawn-a: sinhroni move ne kopira (za to je move_async)
 mkalbum($rips, 'Artist/Album');
 my $s2 = "$rips/Artist/Album";
-my $d2 = "$lib/Artist/Album";
-my $n = 0;
-($ok, $merr) = $L->can('move')->($s2, $d2, rename => sub { $n++; $! = POSIX::EXDEV(); return 0 });
-ok $ok, 'exdev: uspeh' or diag $merr;
-is $n, 1, 'exdev: rename pokusan';
-ok exists_p("$d2/02.flac") && exists_p("$d2/sub/cover.jpg"), 'exdev: kopija kompletna';
-is((-s fs("$d2/01.flac")), 107, 'exdev: velicina ista');
-ok !exists_p($s2), 'exdev: izvor obrisan';
-is sprintf('%04o', (stat fs("$d2/01.flac"))[2] & 07777), '0644', 'exdev: fajl 0644';
-is sprintf('%04o', (stat fs("$d2/sub"))[2] & 07777), '0755', 'exdev: folder 0755';
-
-# EXDEV + greska kopije: delimicna kopija obrisana, izvor ostaje
-mkalbum($rips, 'Bad/Album');
-my $s3 = "$rips/Bad/Album";
-my $d3 = "$lib/Bad/Album";
-chmod 0000, fs("$s3/02.flac");
-SKIP: {
-	skip 'root cita sve', 4 if $> == 0;
-	($ok, $merr) = $L->can('move')->($s3, $d3, rename => sub { $! = POSIX::EXDEV(); return 0 });
-	ok !$ok, 'copy fail: neuspeh';
-	is $merr, 'copy_failed', 'copy fail: kod greske';
-	ok !exists_p($d3), 'copy fail: delimicna kopija obrisana';
-	ok exists_p("$s3/01.flac") && exists_p("$s3/02.flac"), 'copy fail: izvor ostao';
-}
-chmod 0644, fs("$s3/02.flac");
+($ok, $merr) = $L->can('move')->($s2, "$lib/Artist/Album", rename => sub { $! = POSIX::EXDEV(); return 0 });
+ok !$ok && $merr eq 'move_failed', 'sync exdev: move_failed';
+ok exists_p("$s2/01.flac") && !exists_p("$lib/Artist"), 'sync exdev: izvor ostao, bez praznog roditelja';
 
 # odrediste postoji: exists, nista se ne menja
 File::Path::make_path(fs("$lib/Ex/Album"));
@@ -118,7 +96,7 @@ mkalbum($rips, 'As/Two');
 $L->can('move_async')->("$rips/As/Two", "$lib/As/Two", rename => $exdev, spawn => $fake, on_done => $cb);
 is_deeply \@res, [[1, undef]], 'async exdev: gotovo';
 is_deeply [ @{ $argv[0] }[0 .. 2] ], [ 'cp', '-a', '--' ], 'async exdev: cp -a';
-like $argv[0][4], qr{\.part-\d+\z}, 'async exdev: cp u .part';
+like $argv[0][4], qr{/\.Two\.part-\d+-\d+\z}, 'async exdev: cp u skriven .part';
 ok exists_p("$lib/As/Two/sub/cover.jpg") && !exists_p("$rips/As/Two"), 'async exdev: kopija, izvor obrisan';
 is_deeply [ parts() ], [], 'async exdev: nema .part ostataka';
 
@@ -144,6 +122,89 @@ ok exists_p("$rips/As/Four/01.flac") && !exists_p("$lib/As/Four") && !parts(), '
 $L->can('move_async')->("$rips/Ex/Album", "$lib/Ex/Album", on_done => $cb);
 is_deeply \@res, [[undef, 'exists']], 'async: exists';
 
+
+# odrediste se pojavi (prazan folder) tokom kopiranja: rename bi ga tiho zamenio -> 'exists'
+{
+	mkalbum($rips, 'Race/Album');
+	@res = ();
+	my $racing = sub { my ($a, $c) = @_; mkdir fs("$lib/Race/Album"); $c->(system(@$a) >> 8) };
+	$L->can('move_async')->("$rips/Race/Album", "$lib/Race/Album", rename => $exdev, spawn => $racing, on_done => $cb);
+	is_deeply \@res, [[undef, 'exists']], 'race: exists';
+	ok exists_p("$rips/Race/Album/01.flac"), 'race: izvor ostao';
+	ok -d fs("$lib/Race/Album") && !exists_p("$lib/Race/Album/01.flac"), 'race: tudji folder netaknut';
+	is_deeply [ grep { /part/ } do { opendir my $dh, fs("$lib/Race"); readdir $dh } ], [], 'race: .part obrisan';
+}
+
+# .part je skriven i jedinstven; stari ostaci se brisu, aktivan se ne dira; guard po odredistu
+{
+	my $p1 = $L->can('part_path')->("$lib/Sw/Album");
+	my $p2 = $L->can('part_path')->("$lib/Sw/Album");
+	like $p1, qr{\A\Q$lib\E/Sw/\.Album\.part-\d+-\d+\z}, 'part_path: skriveno ime';
+	isnt $p1, $p2, 'part_path: jedinstveno';
+
+	File::Path::make_path(fs("$lib/Sw/.Old.part-1-1"));
+	open my $o, '>:raw', fs("$lib/Sw/.Old.part-1-1/x") or die $!; close $o;
+	mkalbum($rips, 'Sw/Album');
+	mkalbum($rips, 'Sw/Other');
+	@res = ();
+	my (@busy, $active_seen, $part_seen);
+	my $spawn = sub {
+		my ($a, $c) = @_;
+		$L->can('move_async')->("$rips/Sw/Album", "$lib/Sw/Album", on_done => sub { push @busy, [@_] });
+		$part_seen = $a->[-1];
+		# drugi premestaj u isti roditelj pokrece sweep dok je nas .part u toku
+		$L->can('move_async')->("$rips/Sw/Other", "$lib/Sw/Other");
+		$active_seen = -d fs($a->[-1]) ? 0 : 1;
+		$c->(system(@$a) >> 8);
+	};
+	# .part mora da postoji pre sweep-a drugog premestaja: napravimo ga u spawn-u pre cp
+	my $spawn2 = sub { my ($a, $c) = @_; mkdir fs($a->[-1]); $spawn->($a, sub { }); File::Path::remove_tree(fs($a->[-1])); $c->(system(@$a) >> 8) };
+	$L->can('move_async')->("$rips/Sw/Album", "$lib/Sw/Album", rename => $exdev, spawn => $spawn2, on_done => $cb);
+	is_deeply \@busy, [[undef, 'busy']], 'guard: drugi premestaj istog odredista -> busy';
+	like $part_seen, qr{/\.Album\.part-\d+-\d+\z}, 'async: cp pise u skriven .part';
+	is $active_seen, 0, 'sweep: aktivan .part nije obrisan';
+	ok !exists_p("$lib/Sw/.Old.part-1-1"), 'sweep: stari ostatak obrisan';
+	is_deeply \@res, [[1, undef]], 'guard: prvi premestaj uspeo';
+	ok exists_p("$lib/Sw/Album/01.flac"), 'guard: sadrzaj na odredistu';
+}
+
+# izvor se ne moze obrisati posle provere kopije: uspeh sa upozorenjem
+SKIP: {
+	skip 'root brise sve', 3 if $> == 0;
+	mkalbum($rips, 'Sn/Album');
+	@res = ();
+	my $lock = sub { my ($a, $c) = @_; my $r = system(@$a) >> 8; chmod 0555, fs("$rips/Sn"); $c->($r) };
+	$L->can('move_async')->("$rips/Sn/Album", "$lib/Sn/Album", rename => $exdev, spawn => $lock, on_done => $cb);
+	chmod 0755, fs("$rips/Sn");
+	is_deeply \@res, [[1, undef, 'source_not_removed']], 'warn: uspeh sa upozorenjem';
+	ok exists_p("$lib/Sn/Album/01.flac"), 'warn: kopija na odredistu';
+	File::Path::remove_tree(fs("$rips/Sn"));
+}
+
+# prazan folder izvodjaca u rips-u se uklanja; neprazan i koren ne
+{
+	mkalbum($rips, 'Pr/One');
+	mkalbum($rips, 'Pr/Two');
+	$L->can('move')->("$rips/Pr/One", "$lib/Pr/One", rips_root => $rips);
+	ok -d fs("$rips/Pr"), 'prune: izvodjac sa drugim albumom ostaje';
+	$L->can('move')->("$rips/Pr/Two", "$lib/Pr/Two", rips_root => $rips);
+	ok !-e fs("$rips/Pr"), 'prune: prazan izvodjac uklonjen';
+	ok -d fs($rips), 'prune: koren ostaje';
+}
+
+# izuzetak u on_done ne menja ishod premestanja
+{
+	mkalbum($rips, 'Ex2/Album');
+	my @w;
+	local $SIG{__WARN__} = sub { push @w, @_ };
+	my @r = $L->can('move')->("$rips/Ex2/Album", "$lib/Ex2/Album");
+	ok $r[0], 'sync move uspeo';
+	@w = ();
+	mkalbum($rips, 'Ex3/Album');
+	$L->can('move_async')->("$rips/Ex3", "$lib/Ex3x", on_done => sub { die "boom\n" });
+	ok exists_p("$lib/Ex3x/Album/01.flac"), 'on_done izuzetak: premestaj ostaje';
+	like $w[0] // '', qr/boom/, 'on_done izuzetak: zabelezen';
+}
 
 # Ripper::update_path: istorija pokazuje na novu putanju (i posle ponovnog ucitavanja)
 {

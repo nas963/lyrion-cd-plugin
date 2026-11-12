@@ -67,27 +67,10 @@ sub _walk {
 	return $out;
 }
 
-sub _copy_tree {
-	my ($src, $dest, $deadline) = @_;
-	mkdir _fs($dest), 0755 or die "mkdir: $!\n";
-	my $items = _walk($src, '', []);
-	for my $it (@$items) {
-		die "timeout\n" if time() > $deadline;
-		my ($type, $r) = @$it;
-		if ($type eq 'd') { mkdir _fs("$dest/$r"), 0755 or die "mkdir: $!\n" }
-		else {
-			File::Copy::copy(_fs("$src/$r"), _fs("$dest/$r")) or die "copy $r: $!\n";
-			chmod 0644, _fs("$dest/$r");
-		}
-	}
-	_verify_tree($src, $dest, $items);
-	return 1;
-}
-
 # Svaki fajl iz izvora mora postojati na odredistu iste velicine.
 sub _verify_tree {
-	my ($src, $dest, $items) = @_;
-	$items ||= _walk($src, '', []);
+	my ($src, $dest) = @_;
+	my $items = _walk($src, '', []);
 	for my $it (grep { $_->[0] eq 'f' } @$items) {
 		my $r = $it->[1];
 		my ($a, $b) = ((-s _fs("$src/$r")), (-s _fs("$dest/$r")));
@@ -97,47 +80,6 @@ sub _verify_tree {
 }
 
 sub _rmdirs { rmdir _fs($_) for reverse @_; return }
-
-# move($src, $dest, timeout => 60, rename => sub) -> ($ok, $err)
-sub move {
-	my ($src, $dest, %o) = @_;
-	my $rename = $o{rename} || sub { CORE::rename($_[0], $_[1]) };
-	my $deadline = time() + ($o{timeout} // 60);
-	my ($s, $d) = (_fs($src), _fs($dest));
-	return (undef, 'not_found') unless -d $s;
-	return (undef, 'exists') if -e $d || -l $d;
-
-	# roditeljski folderi odredista (pamti koje smo napravili, za ciscenje pri gresci)
-	(my $parent = $dest) =~ s{/[^/]*\z}{};
-	my @missing;
-	for (my $p = $parent; length $p && !-d _fs($p); $p =~ s{/[^/]*\z}{}) { unshift @missing, $p }
-	my @made;
-	for my $p (@missing) {
-		unless (mkdir _fs($p), 0755) { _rmdirs(@made); return (undef, 'mkdir_failed') }
-		push @made, $p;
-	}
-
-	$! = 0;
-	return (1, undef) if $rename->($s, $d);
-	my $errno = $! + 0;
-	unless ($errno == POSIX::EXDEV()) {
-		_rmdirs(@made);
-		return (undef, 'move_failed');
-	}
-
-	# razlicit fajl sistem: kopija, provera velicina, pa brisanje izvora
-	my $ok  = eval { _copy_tree($src, $dest, $deadline) };
-	my $why = $@;
-	unless ($ok) {
-		File::Path::remove_tree($d, { error => \my $e }) if -e $d;
-		_rmdirs(@made);
-		$why =~ s/\n\z//;
-		return (undef, $why =~ /^timeout/ ? 'timeout' : $why =~ /^verify/ ? 'verify_failed' : 'copy_failed');
-	}
-	File::Path::remove_tree($s, { error => \my $err });
-	return (undef, 'source_not_removed') if -e $s;
-	return (1, undef);
-}
 
 # Roditeljski folderi odredista; vraca \@napravljeni (za ciscenje) ili prazno pri gresci.
 sub _make_parents {
@@ -153,37 +95,96 @@ sub _make_parents {
 	return \@made;
 }
 
-# move_async($src, $dest, spawn => sub(\@argv, $on_exit->($status)), on_done => sub($ok, $err), rename => sub)
+my %ACTIVE;    # odredista u toku (guard) -> 1
+my %PART;      # .part folderi u toku (sweep ih ne dira) -> 1
+my $SEQ = 0;
+
+# Skriveno, jedinstveno ime kopije: <roditelj>/.<Album>.part-<pid>-<brojac> (skener preskace skrivene).
+sub part_path {
+	my ($dest) = @_;
+	my ($parent, $name) = $dest =~ m{\A(.*)/([^/]*)\z} ? ($1, $2) : ('', $dest);
+	return "$parent/.$name.part-$$-" . ++$SEQ;
+}
+
+# Brise zaostale .part folderi (stari prekinuti prenosi) u $parent, osim onih koji su u toku.
+sub sweep_parts {
+	my ($parent) = @_;
+	my $pb = _fs($parent);
+	opendir my $dh, $pb or return 0;
+	my @old = grep { /\A\..*\.part-\d+-\d+\z/ } readdir $dh;
+	closedir $dh;
+	my $n = 0;
+	for my $name (@old) {
+		my $full = "$pb/$name";
+		next if $PART{$full};
+		next unless -d $full && !-l $full;
+		File::Path::remove_tree($full, { error => \my $e });
+		$n++;
+	}
+	return $n;
+}
+
+# Posle premestanja: prazan folder izvodjaca u CD-Rips se uklanja (rmdir, nikad rekurzivno;
+# nikad sam rips koren).
+sub _prune_empty {
+	my ($src, $rips) = @_;
+	return unless defined $rips && length $rips;
+	($src, $rips) = map { _clean($_) } ($src, $rips);
+	my $p = $src;
+	while ($p =~ s{/[^/]*\z}{} && length($p) > length($rips) && index($p, "$rips/") == 0) {
+		last unless rmdir _fs($p);
+	}
+	return;
+}
+
+# move_async($src, $dest, spawn => sub(\@argv, $on_exit->($status)), on_done => sub($ok, $err, $warn),
+#            rename => sub, rips_root => $dir)
 # Isti FS: rename odmah (jedna operacija nad direktorijumom). Pri EXDEV kopiranje ide u spoljnom
-# procesu (cp -a u $dest.part-<pid>), da LMS petlja ne blokira dok se stotine MB pisu na disk koji
-# se budi. Posle cp: provera velicina, rename .part -> $dest, brisanje izvora. Na gresku se brise
-# delimicna kopija, izvor ostaje. on_done se poziva tacno jednom.
+# procesu (cp -a u skriveni .part), da LMS petlja ne blokira dok se stotine MB pisu na disk koji se
+# budi. Posle cp: provera velicina, ponovna provera odredista (rename bi tiho zamenio prazan folder),
+# rename .part -> $dest, brisanje izvora. Na gresku se brise delimicna kopija, izvor ostaje.
+# Ako izvor posle provere kopije ne moze da se obrise: uspeh sa upozorenjem 'source_not_removed'.
+# on_done se poziva tacno jednom; izuzetak u njemu nikad ne menja ishod premestanja.
 sub move_async {
 	my ($src, $dest, %o) = @_;
 	my $cb = $o{on_done} || sub { };
-	my $called;
-	my $done = sub { return if $called++; return $cb->(@_) };
-	my $rename = $o{rename}  || sub { CORE::rename($_[0], $_[1]) };
+	my ($called, $owned, $made_ref);
+	my $done = sub {
+		return if $called++;
+		delete $ACTIVE{$dest} if $owned;
+		eval { $cb->(@_); 1 } or warn "Library on_done: $@";
+		return;
+	};
+	my $rename = $o{rename} || sub { CORE::rename($_[0], $_[1]) };
 	my ($s, $d) = (_fs($src), _fs($dest));
+	return $done->(undef, 'busy') if $ACTIVE{$dest};
 	return $done->(undef, 'not_found') unless -d $s;
 	return $done->(undef, 'exists') if -e $d || -l $d;
-	my $made = _make_parents($dest) or return $done->(undef, 'mkdir_failed');
+	$ACTIVE{$dest} = $owned = 1;
+	$made_ref = _make_parents($dest) or do { $done->(undef, 'mkdir_failed'); return };
+	(my $parent = $dest) =~ s{/[^/]*\z}{};
+	sweep_parts($parent);
 
 	$! = 0;
-	return $done->(1, undef) if $rename->($s, $d);
+	if ($rename->($s, $d)) {
+		_prune_empty($src, $o{rips_root});
+		return $done->(1, undef);
+	}
 	my $errno = $! + 0;
 	my $spawn = $o{spawn};
 	unless ($errno == POSIX::EXDEV() && $spawn) {
-		_rmdirs(@$made);
+		_rmdirs(@$made_ref);
 		return $done->(undef, 'move_failed');
 	}
 
-	my $part = "$dest.part-$$";
+	my $part = part_path($dest);
 	my $pb   = _fs($part);
+	$PART{$pb} = 1;
 	my $fail = sub {
 		my ($code) = @_;
 		File::Path::remove_tree($pb, { error => \my $e }) if -e $pb || -l $pb;
-		_rmdirs(@$made);
+		delete $PART{$pb};
+		_rmdirs(@$made_ref);
 		return $done->(undef, $code);
 	};
 	my $started = eval {
@@ -191,15 +192,28 @@ sub move_async {
 			my ($status) = @_;
 			return $fail->('copy_failed') if $status;
 			return $fail->('verify_failed') unless eval { _verify_tree($src, $part); 1 };
+			return $fail->('exists') if -e $d || -l $d;
 			return $fail->('move_failed') unless CORE::rename($pb, $d);
+			delete $PART{$pb};
 			File::Path::remove_tree($s, { error => \my $e });
-			return $done->(undef, 'source_not_removed') if -e $s;
+			if (-e $s) { return $done->(1, undef, 'source_not_removed') }
+			_prune_empty($src, $o{rips_root});
 			return $done->(1, undef);
 		});
 		1;
 	};
 	return $fail->('copy_failed') unless $started;
 	return;
+}
+
+# move($src, $dest, rename => sub, rips_root => $dir) -> ($ok, $err, $warn)
+# Sinhrono, samo isti fajl sistem (jedan rename); preko FS granice javlja 'move_failed' (za to
+# postoji move_async).
+sub move {
+	my ($src, $dest, %o) = @_;
+	my @r;
+	move_async($src, $dest, %o, spawn => undef, on_done => sub { @r = @_ });
+	return @r;
 }
 
 # CLI za skeniranje samo tog foldera: Slim::Control::Commands::rescanCommand uzima 'full' + file URL
