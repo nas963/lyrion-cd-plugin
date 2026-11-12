@@ -313,7 +313,7 @@ sub _register_menu {
 	Slim::Menu::BrowseLibrary->registerNode(Plugins::AudioCD::Menu::node(sub {
 		my ($client, $cb, $args) = @_;
 		Plugins::AudioCD::Menu::feed($client, $cb, $args, $STATE ? $STATE->snapshot : undef, {
-			string  => sub { my ($token, @a) = @_; return Slim::Utils::Strings::cstring($client, $token, @a) },
+			string  => sub { my ($token, @a) = @_; my $s = Slim::Utils::Strings::cstring($client, $token, @a); return defined $s && $s ne $token ? $s : undef },
 			profile => $prefs->get('profile'),
 		});
 	}));

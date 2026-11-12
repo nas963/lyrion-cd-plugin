@@ -81,15 +81,32 @@
         bus.$emit("dlg.open", "iframe", AUDIOCD_PAGE, AUDIOCD_TITLE);
     };
 
+    function safeAttach(view) {
+        try {
+            attach(view);
+        } catch (e) {
+            console.warn("AudioCD: could not add the Audio CD item", e);
+        }
+    }
+
     function install() {
+        if (window.audiocdMaterialInstalled) {
+            return;
+        }
+        window.audiocdMaterialInstalled = true;
         bus.$on("homeScreenItems", function (view) {
             if (view.initItems && view.top) {
-                attach(view);
+                safeAttach(view);
             }
         });
-        var view = findBrowseView(app);
+        var view;
+        try {
+            view = findBrowseView(app);
+        } catch (e) {
+            console.warn("AudioCD: Material view not found", e);
+        }
         if (view) {
-            attach(view);
+            safeAttach(view);
         }
     }
 

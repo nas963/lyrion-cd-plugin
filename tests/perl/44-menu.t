@@ -76,8 +76,14 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 	is_deeply $pa->{fixedParams}, { track => 4 }, 'play akcija nosi redni broj';
 
 	is $it[3]{name}, 'PLUGIN_AUDIOCD_MENU_PLAY_ALL', 'Pusti sve';
-	is_deeply $it[3]{itemActions}{play}{fixedParams}, { track => 1 }, 'Pusti sve startuje od prve pesme';
-	is $it[3]{type}, 'audio', 'Pusti sve je audio stavka';
+	is $it[3]{type}, 'link', 'Pusti sve nije audio stavka (ne dupla prvu pesmu u "play all" zaglavlju)';
+	is $it[3]{url} && ref $it[3]{url}, 'CODE', 'Pusti sve je akcija';
+	@ran = ();
+	my $pa_out;
+	$it[3]{url}->('CLIENT', sub { $pa_out = shift }, {});
+	is_deeply \@ran, [ [ 'audiocd', 'play', 'track:1' ] ], 'Pusti sve startuje od prve pesme';
+	is $pa_out->{items}[0]{name}, 'PLUGIN_AUDIOCD_MENU_PLAYING', 'poruka posle Pusti sve';
+	is scalar(grep { $_->{type} eq 'audio' } @it), 3, 'samo pesme su audio';
 	is $it[4]{name}, 'PLUGIN_AUDIOCD_MENU_RIP(PLUGIN_AUDIOCD_UI_PROFILE_SECURE)', 'Ripuj (<profil>)';
 	is $it[5]{name}, 'PLUGIN_AUDIOCD_UI_EJECT', 'Izbaci';
 
@@ -99,6 +105,16 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 	$r->{items}[4]{url}->('CLIENT', sub { $out = shift }, {});
 	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_ERR_DRIVE_BUSY', 'greska -> poruka za kod';
 	is $out->{items}[0]{type}, 'text', 'greska je tekst';
+}
+
+# stringovi koji ne postoje: greska -> ERR_UNKNOWN, profil -> sama vrednost
+{
+	my %miss = (string => sub { my ($tok, @a) = @_; return ($tok =~ /ERR_WEIRD|UI_PROFILE_/) ? undef : @a ? "$tok(" . join(",", @a) . ")" : $tok });
+	my $r = feed($ready, %miss, run => sub { return (undef, { error => 'weird' }) });
+	my $out;
+	$r->{items}[4]{url}->('CLIENT', sub { $out = shift }, {});
+	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_ERR_UNKNOWN', 'nepoznat kod greske -> ERR_UNKNOWN';
+	is $r->{items}[4]{name}, "PLUGIN_AUDIOCD_MENU_RIP(secure)", "profil bez stringa: ispisuje se sama vrednost";
 }
 
 # bez omota: genericki CD; bez izvodjaca/albuma: nepoznat album

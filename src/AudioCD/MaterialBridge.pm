@@ -22,11 +22,15 @@ $END
 END_BLOCK
 
 # Uklanja samo nas blok (sa zavrsnim novim redom); bez bloka tekst ostaje isti.
+# Tolerise \r\n. Ostatak (start bez kraja): uklanja se marker i, ako odmah iza njega stoji
+# nasa funkcija, ona do prvog "})();"; kod iza se ne dira (ni Unified Music blok).
 sub remove_custom_js {
 	my ($text) = @_;
 
 	$text //= '';
-	$text =~ s/^\Q$START\E\n.*?^\Q$END\E\n?//ms;
+	$text =~ s/^\Q$START\E[ \t]*\r?\n.*?^\Q$END\E[ \t]*(?:\r?\n|\z)//ms;
+	$text =~ s/^\Q$START\E[ \t]*(?:\r?\n|\z)(?:\(function \(\) \{[^\n]*\n.*?^\}\)\(\);[ \t]*(?:\r?\n|\z))?//ms;
+	$text =~ s/^\Q$END\E[ \t]*(?:\r?\n|\z)//m;
 	return $text;
 }
 
@@ -44,8 +48,7 @@ sub merge_custom_js {
 sub install {
 	my ($dir) = @_;
 
-	my $file = "$dir/custom.js";
-	return _rewrite($file, \&merge_custom_js, 1);
+	return _rewrite("$dir/custom.js", \&merge_custom_js, 1);
 }
 
 # Uklanja nas blok iz custom.js (fajl koji ne postoji se ne pravi).
@@ -55,17 +58,27 @@ sub uninstall {
 	return _rewrite("$dir/custom.js", \&remove_custom_js, 0);
 }
 
+# Samo ENOENT znaci "nema fajla"; svaka druga greska citanja baca izuzetak (postojeci fajl se nikad
+# ne prepisuje ako nije procitan). Upis je atomski: privremeni fajl u istom folderu, pa rename;
+# pri gresci se privremeni fajl brise, original ostaje.
 sub _rewrite {
 	my ($file, $fn, $create) = @_;
 
 	my $current = '';
+	my $mode;
 	if (open my $in, '<:raw', $file) {
 		local $/;
 		$current = <$in>;
-		close $in;
+		defined $current or die "$file: $!";
+		close $in or die "$file: $!";
+		$mode = (stat $file)[2];
+		$mode = $mode & 07777 if defined $mode;
 	}
-	elsif (!$create) {
-		return 0;
+	elsif ($!{ENOENT}) {
+		return 0 unless $create;
+	}
+	else {
+		die "$file: $!";
 	}
 	my $new = $fn->($current);
 	return 0 if $new eq $current;
@@ -73,9 +86,21 @@ sub _rewrite {
 	(my $parent = $file) =~ s{/[^/]*\z}{};
 	require File::Path;
 	File::Path::make_path($parent) unless -d $parent;
-	open my $out, '>:raw', $file or die "$file: $!";
-	print {$out} $new;
-	close $out or die "$file: $!";
+
+	my $tmp = "$file.audiocd.$$";
+	my $ok = eval {
+		open my $out, '>:raw', $tmp or die "$tmp: $!\n";
+		print {$out} $new or die "$tmp: $!\n";
+		close $out or die "$tmp: $!\n";
+		chmod $mode, $tmp if defined $mode;
+		rename $tmp, $file or die "$file: $!\n";
+		1;
+	};
+	unless ($ok) {
+		my $err = $@;
+		unlink $tmp;
+		die $err;
+	}
 	return 1;
 }
 

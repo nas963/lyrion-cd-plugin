@@ -31,7 +31,15 @@ sub node {
 
 sub _tr {
 	my ($o, $token, @args) = @_;
-	return $o->{string}->($token, @args);
+	my $s = $o->{string}->($token, @args);
+	return defined $s ? $s : $token;
+}
+
+# Tekst za token, ili $fallback kad string ne postoji (string sub vraca undef/prazno).
+sub _tr_or {
+	my ($o, $fallback, $token, @args) = @_;
+	my $s = $o->{string}->($token, @args);
+	return defined $s && length $s ? $s : $fallback;
 }
 
 # audiocd komanda preko LMS-a: ($ok, $err).
@@ -52,7 +60,8 @@ sub _action {
 		url  => sub {
 			my ($client, $cb) = @_;
 			my ($ok, $err) = $o->{run}->($client, $cmd);
-			my $text = $ok ? _tr($o, $ok_token) : _tr($o, 'PLUGIN_AUDIOCD_ERR_' . uc(($err && $err->{error}) || 'failed'));
+			my $text = $ok ? _tr($o, $ok_token)
+				: _tr_or($o, _tr($o, 'PLUGIN_AUDIOCD_ERR_UNKNOWN'), 'PLUGIN_AUDIOCD_ERR_' . uc(($err && $err->{error}) || 'failed'));
 			$cb->({ items => [ { name => $text, type => 'text' } ] });
 		},
 	};
@@ -113,15 +122,10 @@ sub feed {
 	}
 
 	if (@audio) {
-		push @items, {
-			name        => _tr(\%o, 'PLUGIN_AUDIOCD_MENU_PLAY_ALL'),
-			type        => 'audio',
-			url         => "audiocd://$discid/$audio[0]",
-			image       => $image,
-			itemActions => _play_action($audio[0]),
-		};
+		# link, ne audio: "play all" iz zaglavlja liste ne sme da doda prvu pesmu drugi put
+		push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_MENU_PLAY_ALL'), [ 'audiocd', 'play', "track:$audio[0]" ], 'PLUGIN_AUDIOCD_MENU_PLAYING');
 	}
-	push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_MENU_RIP', _tr(\%o, 'PLUGIN_AUDIOCD_UI_PROFILE_' . uc($o{profile}))),
+	push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_MENU_RIP', _tr_or(\%o, $o{profile}, 'PLUGIN_AUDIOCD_UI_PROFILE_' . uc($o{profile}))),
 		[ 'audiocd', 'rip' ], 'PLUGIN_AUDIOCD_UI_RIP_STARTED');
 	push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_UI_EJECT'), [ 'audiocd', 'eject' ], 'PLUGIN_AUDIOCD_UI_EJECTING');
 
