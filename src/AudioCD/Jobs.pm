@@ -117,7 +117,8 @@ sub run_loop_for_tests {
 # ---------- poslovi ----------
 
 # spawn(argv => [...], on_line => sub($line), on_exit => sub($status), cwd => $dir, umask => 022) -> $job
-# $status je izlazni kod, a 128+signal ako je proces ubijen signalom.
+# $status je izlazni kod, 128+signal ako je proces ubijen signalom, a 255 ako se status ne moze
+# saznati (waitpid je vratio -1, npr. ECHILD zbog SIGCHLD=IGNORE).
 sub spawn {
 	my ($class, %a) = @_;
 	my @argv = @{ $a{argv} || [] };
@@ -125,9 +126,12 @@ sub spawn {
 	for (@argv) {
 		$_ = '' unless defined $_;
 		utf8::encode($_) if utf8::is_utf8($_);    # exec bi inace spustio znakove < 256 na latin-1
+		s/\0//g;                                  # NUL bi tiho presekao argument u exec-u
 	}
 	my $be = _backend();
 
+	STDOUT->flush;    # da dete ne udvostruci neispraznjen bafer
+	STDERR->flush;
 	pipe(my $rd, my $wr) or die "pipe: $!\n";
 	my $pid = fork();
 	die "fork: $!\n" unless defined $pid;
@@ -136,13 +140,15 @@ sub spawn {
 		# dete: sopstvena grupa, stdin /dev/null, stdout+stderr u pipe
 		eval {
 			POSIX::setpgid(0, 0);
+			$SIG{PIPE} = 'DEFAULT';    # LMS moze da ih ignorise, a ignorisanje se nasledjuje kroz exec
+			$SIG{CHLD} = 'DEFAULT';
 			close $rd;
-			chdir $a{cwd} or die "chdir: $!\n" if defined $a{cwd};
-			umask($a{umask}) if defined $a{umask};
 			open(STDIN, '<', '/dev/null');
 			open(STDOUT, '>&', $wr) or die "dup stdout: $!\n";
 			open(STDERR, '>&', $wr) or die "dup stderr: $!\n";
 			close $wr;
+			chdir $a{cwd} or die "chdir: $!\n" if defined $a{cwd};
+			umask($a{umask}) if defined $a{umask};
 			exec { $argv[0] } @argv;
 			die "exec $argv[0]: $!\n";
 		};
@@ -174,7 +180,8 @@ sub pid { $_[0]{pid} }
 sub _emit {
 	my ($self, $line) = @_;
 	return unless length $line && $self->{on_line};
-	$self->{on_line}->(Encode::decode('UTF-8', $line));
+	eval { $self->{on_line}->(Encode::decode('UTF-8', $line)); 1 } or warn "Jobs on_line: $@";
+	return;
 }
 
 sub _on_readable {
@@ -216,9 +223,11 @@ sub _try_reap {
 	my ($self) = @_;
 	return if $self->{done};
 	my $r = waitpid($self->{pid}, POSIX::WNOHANG());
-	if ($r == $self->{pid} || $r == -1) {
-		my $st = $r == -1 ? 0 : $?;
-		$self->_finish($st);
+	if ($r == $self->{pid}) {
+		$self->_finish(_status($?));
+	}
+	elsif ($r == -1) {
+		$self->_finish(255);    # status nepoznat: ne sme da prodje kao uspeh
 	}
 	else {
 		$self->{reap_timer} = _backend()->{timer}->(0.05, sub { $self->_try_reap });
@@ -243,12 +252,12 @@ sub _cancel_timers {
 }
 
 sub _finish {
-	my ($self, $raw) = @_;
+	my ($self, $status) = @_;
 	return if $self->{done}++;
 	$self->_cancel_timers;
 	delete $JOBS{ $self->{pid} };
 	my $cb = delete $self->{on_exit};
-	$cb->(_status($raw)) if $cb;
+	if ($cb) { eval { $cb->($status); 1 } or warn "Jobs on_exit: $@" }
 	return;
 }
 
@@ -266,7 +275,19 @@ sub kill {
 	return;
 }
 
-# Za shutdownPlugin: ubij sve grupe odmah, pocisti ih bez pozivanja callback-ova.
+# Pokupi sto vise dece ($alive se skracuje), najvise $secs; nikad blokirajuci waitpid.
+sub _reap_some {
+	my ($alive, $secs) = @_;
+	my $deadline = Time::HiRes::time() + $secs;
+	while (@$alive && Time::HiRes::time() < $deadline) {
+		@$alive = grep { my $r = waitpid($_->{pid}, POSIX::WNOHANG()); !($r == $_->{pid} || $r == -1) } @$alive;
+		Time::HiRes::sleep(0.02) if @$alive;
+	}
+	return;
+}
+
+# Za shutdownPlugin: ubij sve grupe, pocisti ih bez pozivanja callback-ova. Ogranicen na ~2 s
+# (proces u D stanju na losem disku ne sme da zaglavi gasenje LMS-a).
 sub kill_all {
 	my @jobs = values %JOBS;
 	return unless @jobs;
@@ -275,16 +296,12 @@ sub kill_all {
 		$j->{on_line} = $j->{on_exit} = undef;
 		CORE::kill('TERM', -$j->{pid});
 	}
-	my $deadline = Time::HiRes::time() + 1;
 	my @alive = @jobs;
-	while (@alive && Time::HiRes::time() < $deadline) {
-		@alive = grep { my $r = waitpid($_->{pid}, POSIX::WNOHANG()); !($r == $_->{pid} || $r == -1) } @alive;
-		Time::HiRes::sleep(0.02) if @alive;
-	}
-	for my $j (@alive) {
-		CORE::kill('KILL', -$j->{pid});
-		waitpid($j->{pid}, 0);
-	}
+	_reap_some(\@alive, 1);
+	# SIGKILL SVIM grupama (ESRCH se ignorise), i kad je vodja otisao: unuk koji ignorise TERM bi ostao sirota
+	CORE::kill('KILL', -$_->{pid}) for @jobs;
+	_reap_some(\@alive, 1);
+	warn sprintf("Jobs::kill_all: nisu pokupljeni pid-ovi: %s\n", join(',', map { $_->{pid} } @alive)) if @alive;
 	for my $j (@jobs) {
 		unless ($j->{eof}) {
 			$be->{remove_read}->($j->{fh});

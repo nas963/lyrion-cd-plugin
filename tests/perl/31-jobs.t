@@ -149,6 +149,75 @@ sub alive { my $p = shift; return kill(0, $p) && !_zombie($p) }
 	@LEFTOVER = ();
 }
 
+# kill_all: unuk koji ignorise TERM ne sme da ostane sirota (SIGKILL svim grupama)
+{
+	my $gc;
+	my $job = $J->spawn(
+		argv    => ['sh', '-c', q{(trap '' TERM; exec sleep 60) & echo $!; wait}],
+		on_line => sub { $gc //= $_[0] },
+	);
+	push @LEFTOVER, $job->pid;
+	$J->can('run_loop_for_tests')->(0.5);
+	ok($gc && $gc =~ /^\d+$/, 'unuk (ignorise TERM) javio pid');
+	push @LEFTOVER, $gc if $gc;
+	my $t0 = time;
+	$J->can('kill_all')->();
+	ok(time - $t0 <= 4, 'kill_all ogranicen u vremenu');
+	my $gone = 0;
+	for (1 .. 20) { if (!alive($gc)) { $gone = 1; last } select(undef, undef, undef, 0.1) }
+	ok($gone, 'kill_all: unuk koji ignorise TERM ubijen');
+	@LEFTOVER = ();
+}
+
+# waitpid -1 (SIGCHLD=IGNORE) nije uspeh: status 255
+{
+	local $SIG{CHLD} = 'IGNORE';
+	my (undef, $status) = run_job(argv => ['true']);
+	is($status, 255, 'nepoznat status je 255, ne 0');
+}
+
+# dete dobija podrazumevani SIGPIPE iako ga roditelj ignorise: yes | head -n1 -> yes umire od SIGPIPE (141)
+{
+	local $SIG{PIPE} = 'IGNORE';
+	my ($lines, $status) = run_job(argv => [ $J->can('pipeline')->(['yes'], ['head', '-n', '1']) ]);
+	is_deeply($lines, ['y'], 'pipeline yes | head');
+	is($status, 141, 'SIGPIPE podrazumevan u detetu (pipefail daje 141)');
+}
+
+# izuzetak u callback-u ne zaglavljuje posao u %JOBS
+{
+	my @warn;
+	local $SIG{__WARN__} = sub { push @warn, @_ };
+	my $exited;
+	my $job = $J->spawn(
+		argv    => ['sh', '-c', 'echo a; echo b'],
+		on_line => sub { die "on_line puca\n" },
+		on_exit => sub { $exited = $_[0]; die "on_exit puca\n" },
+	);
+	push @LEFTOVER, $job->pid;
+	ok($J->can('run_loop_for_tests')->(5), 'callback koji baca ne zaglavljuje posao');
+	is($exited, 0, 'on_exit ipak pozvan');
+	is($J->can('running_count')->(), 0, 'nema zivih poslova');
+	is(waitpid($job->pid, POSIX::WNOHANG()), -1, 'dete pokupljeno uprkos izuzecima');
+	ok((grep { /on_line puca/ } @warn) && (grep { /on_exit puca/ } @warn), 'izuzeci prijavljeni upozorenjem');
+	@LEFTOVER = ();
+}
+
+# NUL u argumentu se uklanja, ne seče argument
+{
+	my ($lines) = run_job(argv => ['printf', "%s\n", "ab\0cd"]);
+	is_deeply($lines, ['abcd'], 'NUL izbacen iz argumenta');
+}
+
+# pipeline: apostrof, backtick, $(...), novi red u argumentu
+{
+	for my $arg ("it's", 'a`echo X`b', 'a$(echo X)b', "l1\nl2", q{"dq" \\ $HOME ; | &}) {
+		my ($lines, $status) = run_job(argv => [ $J->can('pipeline')->(['printf', '%s', $arg], ['cat']) ]);
+		is(join("\n", @$lines), join("\n", grep { length } split /[\r\n]/, $arg), "pipeline neokrnjen: " . ($arg =~ s/\n/\\n/gr));
+		is($status, 0, 'pipeline status 0');
+	}
+}
+
 # ---- ubacivanje backenda ----
 {
 	my (@added, @removed, @timers);
