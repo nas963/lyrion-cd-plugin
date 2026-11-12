@@ -41,4 +41,16 @@ open my $fh, '>', "$dir/cache/$id2.json" or die; print $fh '{ pokvaren'; close $
 open $fh, '>', "$dir/cache/$id2.manual.json" or die; print $fh 'xx'; close $fh;
 is($c->get($id2), undef, 'ostecen JSON -> undef');
 
+# --- neuspeo upis: stari fajl ostaje, tmp se brise ---
+{
+	$c->put($id, $res);
+	my $before = $c->get($id);
+	my $bad = { x => sub { 1 } };    # JSON::PP ne moze da kodira CODE
+	ok(!eval { $c->put($id, $bad); 1 }, 'put neuspeo umire');
+	is_deeply($c->get($id), $before, 'stari fajl ostaje');
+	opendir my $dh, "$dir/cache" or die;
+	my @tmp = grep { /\.tmp/ } readdir $dh;
+	is(scalar @tmp, 0, 'nema zaostalih tmp fajlova');
+}
+
 done_testing();

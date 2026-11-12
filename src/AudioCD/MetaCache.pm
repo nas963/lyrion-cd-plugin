@@ -40,11 +40,19 @@ sub _write {
 	my ($self, $path, $data) = @_;
 	File::Path::make_path($self->{dir}, { mode => 0755 }) unless -d $self->{dir};
 	my $tmp = "$path.tmp$$";
-	open my $fh, '>:raw', $tmp or die "ne mogu da pisem $tmp: $!\n";
-	print {$fh} JSON::PP->new->utf8->canonical->encode($data);
-	close $fh or die "ne mogu da zatvorim $tmp: $!\n";
-	chmod 0644, $tmp;
-	rename $tmp, $path or die "rename: $!\n";
+	my $ok = eval {
+		open my $fh, '>:raw', $tmp or die "ne mogu da pisem $tmp: $!\n";
+		print {$fh} JSON::PP->new->utf8->canonical->encode($data) or die "ne mogu da upisem $tmp: $!\n";
+		close $fh or die "ne mogu da zatvorim $tmp: $!\n";
+		chmod 0644, $tmp;
+		rename $tmp, $path or die "rename: $!\n";
+		1;
+	};
+	unless ($ok) {
+		my $err = $@;
+		unlink $tmp;
+		die $err;
+	}
 	return 1;
 }
 

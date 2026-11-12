@@ -34,7 +34,13 @@ sub world {
 		return $err->('mreza') if !defined $v || $v eq 'err';
 		$ok->($v->[1], $v->[0]);
 	};
-	$w->{timer} = sub { my ($s, $cb) = @_; push @{ $w->{delays} }, $s; $w->{clock} += $s; $cb->() };
+	# Limiter (<= 1 s) se izvrsava odmah uz pomeranje sata; watchdog-ovi (10 s, 60 s) cekaju u $w->{pending}.
+	$w->{pending} = [];
+	$w->{timer} = sub {
+		my ($s, $cb) = @_;
+		if ($s <= 1) { push @{ $w->{delays} }, $s; $w->{clock} += $s; $cb->() }
+		else         { push @{ $w->{pending} }, [ $s, $cb ] }
+	};
 	$w->{now}   = sub { $w->{clock} };
 	$w->{run_cmd} = sub { my ($argv, $cb) = @_; $w->{argv} = $argv; $cb->($r{cdinfo}) };
 	$w->{lookup} = $L->can('new')->($L,
@@ -45,8 +51,10 @@ sub world {
 
 sub run {
 	my ($w) = @_;
-	my $res;
-	$w->{lookup}->lookup($toc, sub { $res = $_[0] });
+	my ($res, $n) = (undef, 0);
+	$w->{lookup}->lookup($toc, sub { $res = $_[0]; $n++ });
+	$w->{count} = $n;
+	is($n, 1, 'callback tacno jednom') unless $w->{no_count_check};
 	return $res;
 }
 
@@ -162,6 +170,104 @@ sub run {
 	is($r->{disc}{tracks}[0]{length}, 292, 'cdtext: length');
 	is($w->{argv}[0], 'nice', 'cd-info ide kroz nice');
 	ok((grep { $_ eq '/dev/cdrom' } @{ $w->{argv} }), 'cd-info dobija device');
+}
+
+# --- (3) fuzzy sa tacno jednim kandidatom ---
+{
+	my $body = JSON::PP->new->utf8->decode(slurp('mb-fuzzy-real.json'));
+	$body->{releases} = [ $body->{releases}[0] ];
+	my $w = world(mb => [ 200, JSON::PP->new->utf8->encode($body) ]);
+	my $r = run($w);
+	is($r->{disc}{source}, 'musicbrainz', 'fuzzy 1: musicbrainz');
+	is($r->{fuzzy}, 1, 'fuzzy 1: result.fuzzy');
+	is($r->{candidates}[0]{fuzzy}, 1, 'fuzzy 1: candidate.fuzzy');
+	ok(!(grep { /cddb/ } @{ $w->{urls} }), 'fuzzy 1: GnuDB se ne pita');
+}
+
+# --- (1) parser koji umire -> sledeci izvor, callback jednom ---
+{
+	no warnings 'redefine';
+	local *Plugins::AudioCD::Metadata::MusicBrainz::parse_releases = sub { die "boom
+" };
+	my $w = world(mb => [ 200, slurp('mb-fuzzy-real.json') ], query => [ 200, slurp('gnudb-query-210.txt') ], read => [ 200, slurp('gnudb-read.txt') ]);
+	my $r = run($w);
+	is($r->{disc}{source}, 'gnudb', 'MB parser umire -> GnuDB');
+}
+{
+	no warnings 'redefine';
+	local *Plugins::AudioCD::Metadata::GnuDB::parse_read = sub { die "boom
+" };
+	my $w = world(mb => 'err', query => [ 200, slurp('gnudb-query-210.txt') ], read => [ 200, slurp('gnudb-read.txt') ], cdinfo => slurp('cdinfo-cdtext.txt'));
+	my $r = run($w);
+	is($r->{disc}{source}, 'cdtext', 'GnuDB parser umire -> CD-Text');
+}
+{
+	no warnings 'redefine';
+	local *Plugins::AudioCD::Metadata::CdText::parse = sub { die "boom
+" };
+	my $w = world(mb => 'err', query => 'err', cdinfo => slurp('cdinfo-cdtext.txt'));
+	my $r = run($w);
+	is($r->{disc}{source}, 'generic', 'CD-Text parser umire -> generic');
+}
+{
+	no warnings 'redefine';
+	local *Plugins::AudioCD::Metadata::MusicBrainz::cover_urls = sub { die "boom
+" };
+	my $w = world(mb => [ 200, slurp('mb-fuzzy-real.json') ], query => [ 200, slurp('gnudb-query-210.txt') ], read => [ 200, slurp('gnudb-read.txt') ]);
+	my $r = run($w);
+	is($r->{disc}{source}, 'gnudb', 'sklapanje MB rezultata puca -> GnuDB');
+}
+
+# --- (1) getter koji zove i ok i err -> tacno jedan callback ---
+{
+	my $w = world(mb => [ 200, slurp('mb-fuzzy-real.json') ], query => [ 200, slurp('gnudb-query-210.txt') ], read => [ 200, slurp('gnudb-read.txt') ]);
+	my $inner = $w->{http_get};
+	my $lk = $L->can('new')->($L, http_get => sub {
+			my ($url, $ok, $err) = @_;
+			$inner->($url, $ok, $err);
+			$err->('kasna greska');
+			$ok->('', 200);
+		}, timer => $w->{timer}, now => $w->{now}, run_cmd => $w->{run_cmd});
+	my ($res, $n) = (undef, 0);
+	$lk->lookup($toc, sub { $res = $_[0]; $n++ });
+	is($n, 1, 'ok+err: tacno jedan callback');
+	is($res->{candidates}[ $res->{selected} ]{title}, 'The Story of Jazz', 'ok+err: prvi odgovor pobedjuje');
+}
+
+# --- (2) watchdog: run_cmd koji nikad ne odgovara ---
+{
+	my $w = world(mb => 'err', query => 'err');
+	my $lk = $L->can('new')->($L, http_get => $w->{http_get}, timer => $w->{timer}, now => $w->{now},
+		run_cmd => sub { $w->{hung_cb} = $_[1] });
+	my ($res, $n) = (undef, 0);
+	$lk->lookup($toc, sub { $res = $_[0]; $n++ });
+	is($n, 0, 'hung: jos nema rezultata');
+	my ($wd) = grep { $_->[0] == 10 } @{ $w->{pending} };
+	ok($wd, 'hung: postoji watchdog od 10 s');
+	$wd->[1]->();
+	is($n, 1, 'hung: watchdog zavrsava lookup');
+	is($res->{disc}{source}, 'generic', 'hung: generic');
+	$w->{hung_cb}->(slurp('cdinfo-cdtext.txt'));
+	$_->[1]->() for @{ $w->{pending} };
+	is($n, 1, 'hung: zakasneli rezultati se ignorisu');
+}
+
+# --- (2) ukupni watchdog od 60 s ---
+{
+	my $w = world(mb => 'err');
+	my $lk = $L->can('new')->($L,
+		http_get => sub { my ($u, $ok, $err) = @_; $w->{stuck} = $ok if $u =~ /cmd=cddb\+query/; $err->('x') if $u =~ /musicbrainz/ },
+		timer => $w->{timer}, now => $w->{now}, run_cmd => $w->{run_cmd});
+	my ($res, $n) = (undef, 0);
+	$lk->lookup($toc, sub { $res = $_[0]; $n++ });
+	is($n, 0, 'ukupni: GnuDB visi');
+	my ($wd) = grep { $_->[0] == 60 } @{ $w->{pending} };
+	ok($wd, 'ukupni: postoji watchdog od 60 s');
+	$wd->[1]->();
+	is($n, 1, 'ukupni: zavrseno');
+	is($res->{disc}{source}, 'generic', 'ukupni: generic');
+	$w->{stuck}->(slurp('gnudb-query-210.txt'), 200);
+	is($n, 1, 'ukupni: kasni odgovor ignorisan');
 }
 
 # --- sve prazno -> generic ---

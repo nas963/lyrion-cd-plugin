@@ -26,7 +26,9 @@ use Plugins::AudioCD::Metadata::MusicBrainz;
 use Plugins::AudioCD::Metadata::GnuDB;
 use Plugins::AudioCD::Metadata::CdText;
 
-use constant MB_INTERVAL => 1;
+use constant MB_INTERVAL    => 1;
+use constant CDTEXT_TIMEOUT => 10;    # watchdog za cd-info
+use constant LOOKUP_TIMEOUT => 60;    # watchdog za ceo lookup
 
 sub new {
 	my ($class, %a) = @_;
@@ -89,6 +91,31 @@ sub _decode_utf8 {
 	return Encode::decode('UTF-8', $bytes);
 }
 
+# Zastita: $cb se izvrsava najvise jednom.
+sub _once {
+	my ($cb) = @_;
+	my $fired = 0;
+	return sub { return if $fired++; return $cb->(@_) };
+}
+
+# HTTP zahtev sa garancijom: tacno jedan od ok/err se izvrsava (drugi poziv se ignorise);
+# izuzetak u ok handleru ili u samom getteru postaje err.
+sub _get {
+	my ($self, $url, $ok, $err) = @_;
+	my $fired = 0;
+	my $e = sub { return if $fired++; $err->(@_) };
+	my $o = sub {
+		return if $fired++;
+		my @a = @_;
+		eval { $ok->(@a); 1 } or do { my $m = $@; $err->("handler: $m") };
+	};
+	eval { $self->{http_get}->($url, $o, $e); 1 } or do {
+		my $m = $@;
+		$e->("http_get: $m");
+	};
+	return;
+}
+
 # MusicBrainz zahtev kroz limiter: svaki dobija svoj termin, najmanje MB_INTERVAL posle prethodnog.
 sub _mb_get {
 	my ($self, $url, $ok, $err) = @_;
@@ -97,10 +124,10 @@ sub _mb_get {
 	$self->{next_mb} = $slot + MB_INTERVAL;
 	my $delay = $slot - $now;
 	if ($delay > 0) {
-		$self->{timer}->($delay, sub { $self->{http_get}->($url, $ok, $err) });
+		$self->{timer}->($delay, sub { $self->_get($url, $ok, $err) });
 	}
 	else {
-		$self->{http_get}->($url, $ok, $err);
+		$self->_get($url, $ok, $err);
 	}
 	return;
 }
@@ -117,18 +144,20 @@ sub _usable {
 	return ((defined $disc->{album} && length $disc->{album}) || (defined $disc->{artist} && length $disc->{artist})) ? 1 : 0;
 }
 
-# GnuDB: query -> prvi pogodak -> read. $cb->($disc|undef). Los/prazan odgovor je promasaj.
+# GnuDB: query -> prvi pogodak -> read. $cb->($disc|undef) tacno jednom. Los/prazan odgovor je promasaj.
 sub _gnudb {
 	my ($self, $toc, $cddbid, $cb) = @_;
-	my $v = $self->{version};
-	$self->{http_get}->(
+	$cb = _once($cb);
+	my $v    = $self->{version};
+	my $miss = sub { $cb->(undef) };
+	$self->_get(
 		Plugins::AudioCD::Metadata::GnuDB::query_url($toc, $cddbid, $v),
 		sub {
 			my ($body, $status) = @_;
 			return $cb->(undef) unless defined $status && $status == 200;
 			my $m = Plugins::AudioCD::Metadata::GnuDB::parse_query(_decode_utf8($body));
 			return $cb->(undef) unless @$m;
-			$self->{http_get}->(
+			$self->_get(
 				Plugins::AudioCD::Metadata::GnuDB::read_url($m->[0]{category}, $m->[0]{id}, $v),
 				sub {
 					my ($b2, $s2) = @_;
@@ -137,28 +166,37 @@ sub _gnudb {
 					return $cb->(undef) unless _usable($disc);
 					$cb->($disc);
 				},
-				sub { $cb->(undef) },
+				$miss,
 			);
 		},
-		sub { $cb->(undef) },
+		$miss,
 	);
 	return;
 }
 
+# CD-Text: watchdog CDTEXT_TIMEOUT s; zakasneli rezultat se ignorise.
 sub _cdtext {
 	my ($self, $toc, $cb) = @_;
 	return $cb->(undef) unless ref $self->{run_cmd} eq 'CODE';
+	$cb = _once($cb);
 	my @argv = ('nice', '-n', '10', 'ionice', '-c3', Plugins::AudioCD::Metadata::CdText::command($self->{device}));
-	$self->{run_cmd}->(\@argv, sub {
-		my ($out) = @_;
-		my $text;
-		if (defined $out) {
-			$text = eval { Encode::decode('UTF-8', $out, Encode::FB_CROAK) };
-			$text = Encode::decode('ISO-8859-1', $out) unless defined $text;
-		}
-		my $disc = Plugins::AudioCD::Metadata::CdText::parse($text, _track_count($toc));
-		$cb->(_usable($disc) ? $disc : undef);
-	});
+	$self->{timer}->(CDTEXT_TIMEOUT, sub { $cb->(undef) });
+	my $ok = eval {
+		$self->{run_cmd}->(\@argv, sub {
+			my ($out) = @_;
+			my $disc = eval {
+				my $text;
+				if (defined $out) {
+					$text = eval { Encode::decode('UTF-8', $out, Encode::FB_CROAK) };
+					$text = Encode::decode('ISO-8859-1', $out) unless defined $text;
+				}
+				Plugins::AudioCD::Metadata::CdText::parse($text, _track_count($toc));
+			};
+			$cb->(_usable($disc) ? $disc : undef);
+		});
+		1;
+	};
+	$cb->(undef) unless $ok;
 	return;
 }
 
@@ -167,8 +205,9 @@ sub _candidate_of {
 	return { release_id => undef, title => $disc->{album}, artist => $disc->{artist}, disc => $disc };
 }
 
-sub _finish {
-	my ($self, $toc, $ids, $cands, $selected, $fuzzy, $cb) = @_;
+# Sklapa rezultat (bez poziva callback-a); umire na gresci.
+sub _build {
+	my ($toc, $ids, $cands, $selected, $fuzzy) = @_;
 	for my $c (@$cands) {
 		$c->{disc}{discid} = $ids->{discid};
 		$c->{disc}{cddbid} = $ids->{cddbid};
@@ -177,7 +216,7 @@ sub _finish {
 	}
 	my $sel = $cands->[$selected];
 	my @covers = $sel->{disc}{source} eq 'musicbrainz' ? Plugins::AudioCD::Metadata::MusicBrainz::cover_urls($sel) : ();
-	$cb->({
+	return {
 		discid     => $ids->{discid},
 		cddbid     => $ids->{cddbid},
 		candidates => $cands,
@@ -185,8 +224,7 @@ sub _finish {
 		fuzzy      => $fuzzy ? 1 : 0,
 		disc       => $sel->{disc},
 		cover_urls => \@covers,
-	});
-	return;
+	};
 }
 
 sub lookup {
@@ -196,24 +234,49 @@ sub lookup {
 		cddbid => Plugins::AudioCD::DiscId::cddb_id($toc),
 	};
 	my $count = _track_count($toc);
+	my $done  = 0;
+
+	# Isporuka: tacno jednom; ako sklapanje pukne, ide se na sledeci izvor.
+	my $deliver = sub {
+		my ($cands, $sel, $fuzzy, $next) = @_;
+		return if $done;
+		my $res = eval { _build($toc, $ids, $cands, $sel, $fuzzy) };
+		if (!$res) { return $next ? $next->() : undef }
+		$done = 1;
+		$cb->($res);
+		return;
+	};
 
 	my $fallback_generic = sub {
-		$self->_finish($toc, $ids, [ _candidate_of(generic_disc($toc)) ], 0, 0, $cb);
+		return if $done;
+		my $res = eval { _build($toc, $ids, [ _candidate_of(generic_disc($toc)) ], 0, 0) }
+			|| { discid => $ids->{discid}, cddbid => $ids->{cddbid}, candidates => [], selected => 0, fuzzy => 0,
+				disc => generic_disc($toc), cover_urls => [] };
+		$done = 1;
+		$cb->($res);
+		return;
 	};
 	my $try_cdtext = sub {
+		return if $done;
 		$self->_cdtext($toc, sub {
 			my ($d) = @_;
+			return if $done;
 			return $fallback_generic->() unless $d;
-			$self->_finish($toc, $ids, [ _candidate_of($d) ], 0, 0, $cb);
+			$deliver->([ _candidate_of($d) ], 0, 0, $fallback_generic);
 		});
 	};
 	my $try_gnudb = sub {
+		return if $done;
 		$self->_gnudb($toc, $ids->{cddbid}, sub {
 			my ($d) = @_;
+			return if $done;
 			return $try_cdtext->() unless $d;
-			$self->_finish($toc, $ids, [ _candidate_of($d) ], 0, 0, $cb);
+			$deliver->([ _candidate_of($d) ], 0, 0, $try_cdtext);
 		});
 	};
+
+	# Ukupni watchdog: sta god da visi, lookup zavrsava genericki.
+	$self->{timer}->(LOOKUP_TIMEOUT, sub { $fallback_generic->() });
 
 	my $mb_done = sub {
 		my ($body, $status) = @_;
@@ -222,11 +285,14 @@ sub lookup {
 		return $try_gnudb->() unless @$cands;
 
 		my $exact = Plugins::AudioCD::Metadata::MusicBrainz::has_exact_match($body, $ids->{discid});
-		return $self->_finish($toc, $ids, $cands, 0, 0, $cb) if $exact || @$cands < 2;
+		return $deliver->($cands, 0, 0, $try_gnudb) if $exact;
+		# Jedan priblizan kandidat: oznaka fuzzy, GnuDB nije potreban.
+		return $deliver->($cands, 0, 1, $try_gnudb) if @$cands < 2;
 
 		# Priblizan pogodak sa vise izdanja: GnuDB pomaze da se preselektuje pravo izdanje.
 		$self->_gnudb($toc, $ids->{cddbid}, sub {
 			my ($g) = @_;
+			return if $done;
 			my $sel = 0;
 			if ($g) {
 				my $want = _norm_title($g->{album});
@@ -234,7 +300,7 @@ sub lookup {
 					if (length $want && _norm_title($cands->[$i]{title}) eq $want) { $sel = $i; last }
 				}
 			}
-			$self->_finish($toc, $ids, $cands, $sel, 1, $cb);
+			$deliver->($cands, $sel, 1, $try_gnudb);
 		});
 	};
 
