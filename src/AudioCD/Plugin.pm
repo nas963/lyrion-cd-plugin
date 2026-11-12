@@ -59,6 +59,7 @@ my ($STATE, $CACHE, $RIPPER, $META, $POLL);
 my %TIMERS;      # aktivni LMS tajmeri ovog plugina (gase se u shutdownPlugin)
 my %CHILD_W;     # EV child watcher-i po pid-u
 my %RUN_CMD;     # cd-info poslovi: drze drajv, pa bi ioctl (polling) blokirao LMS dok traju
+my (%MOVING, %MOVING_JOB);    # premestanja u biblioteku u toku (po id-u rip-a) i njihovi cp poslovi
 
 sub getDisplayName { return 'PLUGIN_AUDIOCD' }
 
@@ -509,10 +510,36 @@ sub _cli_move {
 	return _done($request, undef, { error => 'not_available' }) unless eval { require Plugins::AudioCD::Library; 1 };
 	my ($dest, $err) = Plugins::AudioCD::Library::plan_move($e->{path}, $lib, _rips_dir());
 	return _done($request, undef, { error => $err }) if $err;
-	my ($ok, $merr) = Plugins::AudioCD::Library::move($e->{path}, $dest, timeout => 60);
-	return _done($request, undef, { error => $merr || 'move_failed' }) unless $ok;
-	Slim::Control::Request::executeRequest(undef, Plugins::AudioCD::Library::rescan_cmd($dest));
-	_done($request, 1, undef, dest => $dest);
+	return _done($request, undef, { error => 'busy' }) if $MOVING{$id};
+
+	# Asinhrono: kopiranje na drugi disk (EXDEV) ide u spoljnom procesu (cp), LMS petlja ne blokira.
+	# CLI odmah odgovara; kraj premestanja azurira istoriju i stanje, pa skenira samo taj folder.
+	$MOVING{$id} = 1;
+	my $started = eval {
+		Plugins::AudioCD::Library::move_async($e->{path}, $dest,
+			spawn   => sub {
+				my ($argv, $on_exit) = @_;
+				$MOVING_JOB{$id} = Plugins::AudioCD::Jobs->spawn(
+					argv    => [ Plugins::AudioCD::Jobs::low_prio(@$argv) ],
+					on_exit => sub { delete $MOVING_JOB{$id}; $on_exit->(@_) },
+				);
+			},
+			on_done => sub {
+				my ($ok, $merr) = @_;
+				delete $MOVING{$id};
+				unless ($ok) { $log->error("premestanje u biblioteku: " . ($merr || 'move_failed')); return }
+				$RIPPER->update_path($id, $dest);
+				$STATE->on_rip_change if $STATE;
+				Slim::Control::Request::executeRequest(undef, Plugins::AudioCD::Library::rescan_cmd($dest));
+			},
+		);
+		1;
+	};
+	unless ($started) {
+		delete $MOVING{$id};
+		return _done($request, undef, { error => 'move_failed' });
+	}
+	_done($request, 1, undef, started => 1, dest => $dest);
 }
 
 1;

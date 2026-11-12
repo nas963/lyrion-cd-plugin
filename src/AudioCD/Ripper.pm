@@ -177,6 +177,16 @@ sub busy {
 
 sub history { return [ @{ $_[0]{history} } ] }
 
+# Posle premestanja u biblioteku istorija pokazuje na novu putanju.
+sub update_path {
+    my ($self, $id, $path) = @_;
+    my ($e) = grep { defined $_->{id} && defined $id && $_->{id} eq $id } @{ $self->{history} };
+    return 0 unless $e;
+    $e->{path} = $path;
+    $self->_save_history;
+    return 1;
+}
+
 sub _brief {
     my ($rec) = @_;
     return {
