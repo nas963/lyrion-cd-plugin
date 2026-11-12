@@ -1,0 +1,2 @@
+# AudioCD: kad se disk ubaci ili izvadi, systemd pokrece audiocd-notify@<uredjaj>.service
+ACTION=="change", SUBSYSTEM=="block", KERNEL=="sr[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="audiocd-notify@%k.service"

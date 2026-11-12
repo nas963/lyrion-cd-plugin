@@ -1,0 +1,9 @@
+[Unit]
+Description=AudioCD: obavesti Lyrion o promeni diska u %I
+
+[Service]
+Type=oneshot
+User=squeezeboxserver
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/local/lib/audioos/audiocd-notify %I

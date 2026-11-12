@@ -1,0 +1,45 @@
+#!/bin/sh
+# AudioCD: javlja Lyrion-u da je disk ubacen (load) ili izvadjen (eject_event).
+# Upotreba: audiocd-notify <ime-uredjaja, npr. sr0>
+# Zavisnosti: udevadm, curl. Uvek izlazi sa 0, cak i kad Lyrion ne radi.
+# Za testove: AUDIOCD_UDEVADM, AUDIOCD_CURL, AUDIOCD_PREFS.
+
+UDEVADM="${AUDIOCD_UDEVADM:-udevadm}"
+CURL="${AUDIOCD_CURL:-curl}"
+PREFS="${AUDIOCD_PREFS:-/var/lib/squeezeboxserver/prefs/server.prefs}"
+
+dev="${1:-}"
+case "$dev" in
+	''|*[!A-Za-z0-9_-]*)
+		echo "audiocd-notify: neispravno ime uredjaja '$dev'" >&2
+		exit 0
+		;;
+esac
+
+props="$("$UDEVADM" info -q property -n "/dev/$dev" 2>/dev/null)" || props=""
+tracks="$(printf '%s\n' "$props" | sed -n 's/^ID_CDROM_MEDIA_TRACK_COUNT_AUDIO=//p' | head -n 1)"
+case "$tracks" in
+	''|*[!0-9]*) tracks=0 ;;
+esac
+
+if [ "$tracks" -gt 0 ]; then
+	cmd="load"
+else
+	cmd="eject_event"
+fi
+
+port=""
+if [ -r "$PREFS" ]; then
+	port="$(sed -n 's/^httpport:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' "$PREFS" | head -n 1)"
+fi
+port="${port:-9000}"
+
+if "$CURL" -fsS -m 5 -o /dev/null \
+	-H 'Content-Type: application/json' \
+	-d "{\"id\":1,\"method\":\"slim.request\",\"params\":[\"\",[\"audiocd\",\"$cmd\"]]}" \
+	"http://127.0.0.1:$port/jsonrpc.js"; then
+	echo "audiocd-notify: $dev -> $cmd (port $port)" >&2
+else
+	echo "audiocd-notify: Lyrion nije dostupan na portu $port ($dev -> $cmd)" >&2
+fi
+exit 0

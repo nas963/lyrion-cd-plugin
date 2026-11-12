@@ -22,4 +22,7 @@ fi
 if [ -d "$ROOT/tests/fixtures" ]; then
     scp -q -r "$ROOT/tests/fixtures" "lyrion:$REMOTE/t/"
 fi
+if [ -d "$ROOT/system" ]; then
+    scp -q -r "$ROOT/system" "lyrion:$REMOTE/"
+fi
 ssh -o BatchMode=yes lyrion "cd '$REMOTE' && prove -r -I lib ${1:-t}"
