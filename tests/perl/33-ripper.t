@@ -282,6 +282,59 @@ sub mk {
     ok(!-e "$rips/.audiocd-tmp/$a", 'tmp obrisan');
 }
 
+# ---- neASCII rips_dir: tmp, stage i odrediste ----
+{
+    my $rips = "$root/Ripovi ćšž";
+    File::Path::make_path($rips);
+    @SPAWNS = ();
+    $AUTO = sub { write_rip($_[0]); $_[0]{on_exit}->(0) };
+    my $r = mk();
+    my ($id, $err) = $r->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips);
+    ok($id && !$err, 'neASCII rips_dir: enqueue') or diag explain $err;
+    ok(!utf8::is_utf8($SPAWNS[0]{cwd}), 'cwd je bajtovi (ne karakter string)');
+    like($SPAWNS[0]{cwd}, qr/\.audiocd-tmp\//, 'cwd u tmp folderu');
+    is($r->history->[0]{result}, 'ok', 'neASCII: result ok') or diag explain $r->history->[0];
+    ok(-f "$rips/Izvođač/Album/01 - Naslov 1.flac", 'neASCII: fajl na odredistu');
+    ok(-f "$rips/Izvođač/Album/Album.cue", 'neASCII: cue na odredistu');
+    is_deeply([ ls("$rips/.audiocd-tmp") ], [], 'neASCII: tmp obrisan');
+}
+
+# ---- neuspeh usred premestanja: nista ne ostaje ----
+{
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    $AUTO = sub { write_rip($_[0]); $_[0]{on_exit}->(0) };
+    my $cnt = 0;
+    my $r = $R->new(spawn => $fake, df => $big_df, cyanrip => 'cyanrip',
+        rename => sub { if (++$cnt == 2) { $! = 13; return 0 } CORE::rename($_[0], $_[1]) });
+    $r->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips);
+    is($r->history->[0]{result}, 'error', 'neuspeh premestanja -> error');
+    like($r->history->[0]{message}, qr/premestanje/, 'poruka pominje premestanje');
+    ok(!-e "$rips/Izvođač", 'nema albuma ni novog praznog foldera izvodjaca');
+    is_deeply([ ls($rips) ], ['.audiocd-tmp'], 'u rips ostaje samo .audiocd-tmp');
+    is_deeply([ ls("$rips/.audiocd-tmp") ], [], 'tmp (i stage) obrisan');
+    ok(!$r->busy, 'slobodan posle neuspeha');
+
+    # postojeci folder izvodjaca ostaje netaknut
+    my $rips2 = fresh_rips();
+    File::Path::make_path("$rips2/Izvođač");
+    $cnt = 0;
+    my $r2 = $R->new(spawn => $fake, df => $big_df, cyanrip => 'cyanrip',
+        rename => sub { if (++$cnt == 3) { $! = 13; return 0 } CORE::rename($_[0], $_[1]) });
+    $r2->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips2);
+    is($r2->history->[0]{result}, 'error', 'drugi neuspeh -> error');
+    is_deeply([ ls("$rips2/Izvođač") ], [], 'postojeci folder izvodjaca prazan i na mestu');
+
+    # tokom gradnje se ne dira odrediste: tek kompletan album se pojavljuje odjednom
+    my $rips3 = fresh_rips();
+    my @seen;
+    my $r3 = $R->new(spawn => $fake, df => $big_df, cyanrip => 'cyanrip',
+        rename => sub { push @seen, (-e "$rips3/Izvođač" ? 1 : 0); CORE::rename($_[0], $_[1]) });
+    $r3->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips3);
+    is_deeply([ grep { $_ } @seen ], [], 'odrediste se ne pojavljuje dok se album gradi');
+    ok(-f "$rips3/Izvođač/Album/02 - Naslov 2.flac", 'a posle je kompletan');
+}
+
 # ---- greska ----
 {
     my $rips = fresh_rips();

@@ -11,6 +11,7 @@ use utf8;
 use Encode ();
 use File::Copy ();
 use File::Path ();
+use POSIX ();
 use JSON::PP ();
 
 use Plugins::AudioCD::DiscId;
@@ -64,8 +65,7 @@ sub default_df {
     my $pid = open(my $fh, '-|') // return undef;
     if (!$pid) {
         open(STDERR, '>', '/dev/null');
-        exec { $df } $df, '-Pk', _fs($dir);
-        exit 127;
+        exec { $df } $df, '-Pk', _fs($dir) or POSIX::_exit(127);
     }
     my @lines = <$fh>;
     close $fh;
@@ -82,7 +82,8 @@ sub new {
     my $self = bless {
         spawn        => $a{spawn} || sub { Plugins::AudioCD::Jobs->spawn(@_) },
         df           => $a{df} || \&default_df,
-        history_file => $a{history_file},
+        history_file => (defined $a{history_file} ? _fs($a{history_file}) : undef),
+        rename       => $a{rename} || sub { CORE::rename($_[0], $_[1]) },
         on_change    => $a{on_change},
         cyanrip      => $a{cyanrip} || Plugins::AudioCD::Tools::find('cyanrip') || 'cyanrip',
         now          => $a{now} || sub { time },
@@ -156,6 +157,14 @@ sub _add_history {
 
 # ---------- javni API ----------
 
+sub _free {
+    my ($self, $dir) = @_;
+    my $free = $self->{df}->($dir);
+    warn "Ripper: ne mogu da saznam slobodan prostor za $dir; provera se preskace
+" unless defined $free;
+    return $free;
+}
+
 sub busy {
     my ($self) = @_;
     return ($self->{current} || @{ $self->{queue} }) ? 1 : 0;
@@ -210,7 +219,7 @@ sub enqueue {
         };
     }
     my $needed = needed_bytes($a{toc});
-    my $free   = $self->{df}->($rips);
+    my $free   = $self->_free($rips);
     return (undef, { error => 'no_space', needed => $needed, free => $free })
         if defined $free && $free < $needed;
 
@@ -291,7 +300,7 @@ sub _start {
     $rec->{accurip}       = {};
     $rec->{tail}          = [];
 
-    my $free = $self->{df}->($rec->{rips_dir});
+    my $free = $self->_free($rec->{rips_dir});
     my $need = needed_bytes($rec->{toc});
     if (defined $free && $free < $need) {
         $self->_add_history($rec, 'error', message => "no_space: potrebno $need, slobodno $free");
@@ -333,7 +342,7 @@ sub _start {
     my $job = eval {
         $self->{spawn}->(
             argv    => $argv,
-            cwd     => $rec->{tmp},
+            cwd     => _fs($rec->{tmp}),
             umask   => 022,
             on_line => sub { $self->_on_line($rec, $_[0]) },
             on_exit => sub { $self->_on_exit($rec, $_[0]) },
@@ -430,11 +439,12 @@ sub _remove_tmp {
     return;
 }
 
-# Fajlovi cyanrip-a pocinju od <N>.flac (N bez nula) + jedan .log i .cue (imena sa unicode znakovima).
-sub _glob_ext {
+# Fajlovi u folderu sa datom ekstenzijom (bajt imena), sortirano; $ext undef = svi fajlovi.
+# cyanrip: <N>.flac (N bez nula) + jedan .log i .cue sa unicode znakovima u imenu.
+sub _glob_files {
     my ($dir, $ext) = @_;
     opendir(my $dh, $dir) or return ();
-    my @f = sort grep { /\.\Q$ext\E\z/i && -f "$dir/$_" } readdir $dh;
+    my @f = sort grep { $_ ne '.' && $_ ne '..' && -f "$dir/$_" && (!defined $ext || /\.\Q$ext\E\z/i) } readdir $dh;
     closedir $dh;
     return @f;
 }
@@ -448,7 +458,16 @@ sub _slurp {
     return $t;
 }
 
-# Premesta rezultat iz tmp u folder albuma; vraca (result =>, accurip =>, path =>).
+# Premestanje unutar istog fajl sistema (tmp je pod rips folderom); hook $self->{rename} za testove.
+sub _move {
+    my ($self, $from, $to) = @_;
+    $self->{rename}->($from, $to) or die "ne mogu da premestim $from: $!\n";
+    return 1;
+}
+
+# Gradi album u <tmp>/stage, pa ga jednim rename-om postavlja na odrediste. Greska ne ostavlja
+# nista sem sto brise tmp (a to radi pozivalac); nove prazne roditeljske foldere ukloni.
+# Vraca (result =>, accurip =>, path =>).
 sub _collect {
     my ($self, $rec) = @_;
     my $disc = $rec->{disc};
@@ -459,53 +478,59 @@ sub _collect {
         die "nedostaje $t->{n}.flac\n" unless -f "$tmp/$t->{n}.flac";
     }
 
+    my $stage = "$tmp/stage";
+    mkdir $stage, 0755 or die "ne mogu da napravim stage: $!\n";
+
+    my (%newname, $log_text);
+    $log_text = '';
+    for my $t (@tracks) {
+        my $name = Plugins::AudioCD::Naming::track_file($disc, $t);
+        $newname{ $t->{n} } = $name;
+        $self->_move("$tmp/$t->{n}.flac", "$stage/" . _fs($name));
+    }
+    $self->_move("$tmp/cover.jpg", "$stage/cover.jpg") if -f "$tmp/cover.jpg";
+
+    my $album = Plugins::AudioCD::Naming::sanitize($disc->{album});
+    my ($log) = _glob_files($tmp, 'log');
+    my ($cue) = _glob_files($tmp, 'cue');
+    if (defined $log) {
+        $log_text = Encode::decode('UTF-8', _slurp("$tmp/$log"));
+        $self->_move("$tmp/$log", "$stage/" . _fs("$album.log"));
+    }
+    if (defined $cue) {
+        my $text = _slurp("$tmp/$cue");
+        $text =~ s{(FILE\s+")(\d+)(\.flac")}{
+            my ($pre, $n, $post) = ($1, $2, $3);
+            defined $newname{ $n + 0 } ? $pre . _fs($newname{ $n + 0 }) . '"' : "$pre$n$post"
+        }ge;
+        my $out = "$stage/" . _fs("$album.cue");
+        open my $fh, '>:raw', $out or die "ne mogu da pisem $out: $!\n";
+        print {$fh} $text;
+        close $fh or die "ne mogu da zatvorim $out: $!\n";
+    }
+
+    # cyanrip pravi 0700/0664; Samba i ostali citaoci traze 0755/0644
+    chmod 0644, map { "$stage/$_" } _glob_files($stage);
+    chmod 0755, $stage;
+
     my $base = Plugins::AudioCD::Naming::album_dir($rec->{rips_dir}, $disc);
     my $sub  = Plugins::AudioCD::Naming::disc_subdir($disc);
     $base .= "/$sub" if length $sub;
-    my $dest = Plugins::AudioCD::Naming::unique_dir($base, sub { -e _fs($_[0]) });
+    my $dest   = Plugins::AudioCD::Naming::unique_dir($base, sub { -e _fs($_[0]) });
     my $dest_b = _fs($dest);
+    (my $parent = $dest_b) =~ s{/[^/]*\z}{};
 
-    my $created = eval { [ File::Path::make_path($dest_b, { mode => 0755 }) ] };
-    die "ne mogu da napravim $dest: $@\n" unless $created && -d $dest_b;
-
+    my @created;
     my $ok = eval {
-        my %newname;
-        for my $t (@tracks) {
-            my $name = Plugins::AudioCD::Naming::track_file($disc, $t);
-            $newname{ $t->{n} } = $name;
-            _move("$tmp/$t->{n}.flac", "$dest_b/" . _fs($name));
-        }
-        _move("$tmp/cover.jpg", "$dest_b/cover.jpg") if -f "$tmp/cover.jpg";
-
-        my $album = Plugins::AudioCD::Naming::sanitize($disc->{album});
-        my ($log) = _glob_ext($tmp, 'log');
-        my ($cue) = _glob_ext($tmp, 'cue');
-        my $log_text = '';
-        if (defined $log) {
-            $log_text = Encode::decode('UTF-8', _slurp("$tmp/$log"));
-            _move("$tmp/$log", "$dest_b/" . _fs("$album.log"));
-        }
-        if (defined $cue) {
-            my $text = _slurp("$tmp/$cue");
-            $text =~ s{(FILE\s+")(\d+)(\.flac")}{
-                my ($pre, $n, $post) = ($1, $2, $3);
-                defined $newname{ $n + 0 } ? $pre . _fs($newname{ $n + 0 }) . '"' : "$pre$n$post"
-            }ge;
-            my $out = "$dest_b/" . _fs("$album.cue");
-            open my $fh, '>:raw', $out or die "ne mogu da pisem $out: $!\n";
-            print {$fh} $text;
-            close $fh or die "ne mogu da zatvorim $out: $!\n";
-        }
-
-        # cyanrip pravi 0700/0664; Samba i ostali citaoci traze 0755/0644
-        chmod 0644, $_ for glob_files($dest_b);
-        chmod 0755, @$created, $dest_b;
-        $rec->{log_summary} = Plugins::AudioCD::Profiles::summary($log_text);
+        @created = File::Path::make_path($parent, { mode => 0755 });
+        chmod 0755, @created;
+        die "folder $dest se u medjuvremenu pojavio\n" if -e $dest_b || -l $dest_b;
+        rename $stage, $dest_b or die "ne mogu da postavim $dest: $!\n";
         1;
     };
     unless ($ok) {
         my $e = $@ || 'nepoznata greska';
-        File::Path::remove_tree($dest_b, { error => \my $err });    # nov folder, nista tudje u njemu
+        rmdir $_ for reverse @created;    # samo prazne, samo koje je ovaj rip napravio
         die $e;
     }
 
@@ -513,7 +538,7 @@ sub _collect {
     my %seen   = (map { $_ => 1 } values %states);
     $seen{notfound} = 1 if $rec->{accurip_seen}{notfound};
     my $overall = $seen{mismatch} ? 'mismatch' : $seen{match} ? 'match' : $seen{notfound} ? 'notfound' : 'none';
-    my $sum = $rec->{log_summary};
+    my $sum = Plugins::AudioCD::Profiles::summary($log_text);
     return (
         result  => $overall eq 'mismatch' ? 'accurip_mismatch' : 'ok',
         path    => $dest,
@@ -524,21 +549,6 @@ sub _collect {
             total  => $sum->{accurip_total},
         },
     );
-}
-
-sub glob_files {
-    my ($dir) = @_;
-    opendir(my $dh, $dir) or return ();
-    my @f = map { "$dir/$_" } grep { $_ ne '.' && $_ ne '..' && -f "$dir/$_" } readdir $dh;
-    closedir $dh;
-    return @f;
-}
-
-sub _move {
-    my ($from, $to) = @_;
-    return 1 if rename $from, $to;
-    File::Copy::move($from, $to) or die "ne mogu da premestim $from: $!\n";
-    return 1;
 }
 
 1;
