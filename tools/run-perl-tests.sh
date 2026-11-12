@@ -22,6 +22,9 @@ fi
 if [ -d "$ROOT/tests/fixtures" ]; then
     scp -q -r "$ROOT/tests/fixtures" "lyrion:$REMOTE/t/"
 fi
+if [ -d "$ROOT/packaging" ]; then
+    scp -q -r "$ROOT/packaging" "lyrion:$REMOTE/"
+fi
 if [ -d "$ROOT/system" ]; then
     scp -q -r "$ROOT/system" "lyrion:$REMOTE/"
 fi
