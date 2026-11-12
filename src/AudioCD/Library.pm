@@ -9,6 +9,7 @@ use strict;
 use warnings;
 use utf8;
 
+use Encode ();
 use File::Copy ();
 use File::Path ();
 use POSIX ();
@@ -56,7 +57,8 @@ sub _walk {
 	my ($dir, $rel, $out) = @_;
 	my $here = length $rel ? "$dir/$rel" : $dir;
 	opendir my $dh, _fs($here) or die "opendir: $!\n";
-	my @kids = sort grep { !/^\.\.?\z/ } readdir $dh;
+	# imena su bajtovi: dekodiraj, da se _fs() kasnije ne primeni dvaput (nevalidan UTF-8 = greska, izvor ostaje)
+	my @kids = sort map { Encode::decode('UTF-8', $_, Encode::FB_CROAK | Encode::LEAVE_SRC) } grep { !/^\.\.?\z/ } readdir $dh;
 	closedir $dh;
 	for my $k (@kids) {
 		my $r = length $rel ? "$rel/$k" : $k;

@@ -17,7 +17,7 @@ sub fs { Plugins::AudioCD::Naming::fs_bytes($_[0]) }
 sub mkalbum {
 	my ($rips, $rel) = @_;
 	File::Path::make_path(fs("$rips/$rel/sub"));
-	for my $f ("01.flac", "02.flac", "sub/cover.jpg") {
+	for my $f ("01.flac", "02.flac", "03 - Mañana ’Iguana.flac", "sub/cover.jpg") {
 		open my $fh, '>:raw', fs("$rips/$rel/$f") or die $!;
 		print {$fh} 'x' x (100 + length $f);
 		close $fh;
