@@ -516,7 +516,8 @@ sub _collect {
     }
     if (defined $cue) {
         my $text = _slurp("$tmp/$cue");
-        $text =~ s{(FILE\s+")(\d+)(\.flac")}{
+        # cyanrip 0.9 pise ceo put privremenog foldera ispred broja: FILE "var/.../1.flac"
+        $text =~ s{(FILE\s+")(?:[^"]*/)?(\d+)(\.flac")}{
             my ($pre, $n, $post) = ($1, $2, $3);
             defined $newname{ $n + 0 } ? $pre . _fs($newname{ $n + 0 }) . '"' : "$pre$n$post"
         }ge;

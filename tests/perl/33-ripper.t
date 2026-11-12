@@ -68,7 +68,7 @@ sub write_rip {
     print {$l} "Tracks to rip:  all\nDisc tracks:    3\nTrack 1 ripped and encoded successfully!\nTrack 2 ripped and encoded successfully!\nTrack 3 ripped and encoded successfully!\nTracks ripped accurately: 2/3\n";
     close $l;
     open my $c, '>:utf8', "$d/Albumˑ.cue" or die;
-    print {$c} qq{TITLE "Album"\nFILE "1.flac" WAVE\n  TRACK 01 AUDIO\nFILE "2.flac" WAVE\n  TRACK 02 AUDIO\nFILE "3.flac" WAVE\n  TRACK 03 AUDIO\n};
+    print {$c} qq{TITLE "Album"\nFILE "1.flac" WAVE\n  TRACK 01 AUDIO\nFILE "var/lib/squeezeboxserver/CD-Rips/.audiocd-tmp/rip-1/2.flac" WAVE\n  TRACK 02 AUDIO\nFILE "3.flac" WAVE\n  TRACK 03 AUDIO\n};
     close $c;
     chmod 0700, $d;
 }
@@ -122,6 +122,8 @@ sub mk {
     like($cue, qr/FILE "01 - Naslov 1\.flac" WAVE/, 'cue FILE 1 prepravljen');
     like($cue, qr/FILE "03 - Naslov 3\.flac" WAVE/, 'cue FILE 3 prepravljen');
     unlike($cue, qr/FILE "\d\.flac"/, 'nema starih imena u cue');
+    unlike($cue, qr/audiocd-tmp/, "cue nema putanje privremenog foldera (cyanrip 0.9 pise ceo put)");
+    like($cue, qr/FILE "02 - Naslov 2.flac" WAVE/, "cue FILE 2 prepravljen i kad ima put ispred");
     is_deeply([ ls("$rips/.audiocd-tmp") ], [], 'tmp folder obrisan');
 
     my $h = $r->history;
