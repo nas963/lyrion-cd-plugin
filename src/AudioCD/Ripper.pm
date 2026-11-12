@@ -208,6 +208,7 @@ sub status {
             track         => $c->{track},
             track_percent => $c->{track_percent},
             state         => $c->{cancel} ? 'cancelling' : 'ripping',
+            eject_after   => $c->{eject_after} ? 1 : 0,    # cyanrip -Q sam otvara fioku na kraju
         } : undef,
         queue => [ map { _brief($_) } @{ $self->{queue} } ],
     };

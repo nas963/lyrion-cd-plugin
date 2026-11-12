@@ -98,7 +98,7 @@ sub mkresult {
 		push @{ $s->{enq} }, {%a};
 		return (undef, $s->{err}) if $s->{err};
 		my $id = 'rip-' . scalar @{ $s->{enq} };
-		$s->{current} = { id => $id, disc => $a{disc}{discid}, percent => 0, state => 'ripping' };
+		$s->{current} = { id => $id, disc => $a{disc}{discid}, percent => 0, state => 'ripping', eject_after => $a{eject_after} ? 1 : 0 };
 		return ($id, undef);
 	}
 	sub abort_all { my ($s, $r) = @_; push @{ $s->{aborts} }, $r; $s->{current} = undef; $s->{queue} = []; 1 }
@@ -126,6 +126,12 @@ sub world {
 		ejects  => 0,
 		notes   => [],
 		kills   => 0,
+		reads   => 0,
+		cdinfo  => 0,
+		lookup_kills => 0,
+		drive   => [ 4, undef ],
+		drive_calls => 0,
+		eject_args => [],
 		dir     => "$root/w" . ++$seq,
 	};
 	File::Path::make_path("$w->{dir}/meta", "$w->{dir}/rips");
@@ -134,7 +140,7 @@ sub world {
 	$w->{meta} = Plugins::AudioCD::MetaCache->new(dir => "$w->{dir}/meta");
 	$w->{state} = $S->new(
 		pref        => sub { $w->{prefs}{ $_[0] } },
-		read_toc    => sub { return $w->{toc_err} ? (undef, $w->{toc_err}) : ($w->{toc}, undef) },
+		read_toc    => sub { $w->{reads}++; return $w->{toc_err} ? (undef, $w->{toc_err}) : ($w->{toc}, undef) },
 		lookup      => $w->{lookup},
 		metacache   => $w->{meta},
 		cache       => $w->{cache},
@@ -142,10 +148,13 @@ sub world {
 		rips_dir    => sub { "$w->{dir}/rips" },
 		fetch_cover => sub { push @{ $w->{covers} }, [@_] },
 		play        => sub { push @{ $w->{plays} }, [@_]; return (1, undef) },
-		eject       => sub { $w->{ejects}++ },
+		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0] },
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
 		kill_all    => sub { $w->{kills}++ },
+		drive_status => sub { $w->{drive_calls}++; @{ $w->{drive} } },
+		lookup_busy => sub { $w->{cdinfo} },
+		kill_lookup => sub { $w->{lookup_kills}++ },    # asinhrono: proces jos zivi
 	);
 	return $w;
 }
@@ -180,7 +189,7 @@ sub loaded {
 	is($snap->{fuzzy}, 1, 'fuzzy oznaka');
 	is($snap->{drive_busy}, 'none', 'drive_busy none');
 	ok($w->{meta}->get($ID), 'rezultat sacuvan u MetaCache');
-	for my $k (qw(status toc discid cddbid releases release_idx metadata cover_url cover_path drive_busy cache rip errors missing_tools)) {
+	for my $k (qw(status toc discid cddbid releases release_idx metadata cover_url drive_busy cache rip errors missing_tools)) {
 		ok(exists $snap->{$k}, "snapshot ima $k");
 	}
 	ok(eval { JSON::PP->new->encode($snap); 1 }, 'snapshot je JSON') or diag $@;
@@ -262,7 +271,7 @@ sub loaded {
 	close $fh;
 	$w->{covers}[0][2]->(1);
 	is($w->{state}->snapshot->{cover_url}, "/plugins/AudioCD/cover/$ID.jpg", 'cover_url posle preuzimanja');
-	is($w->{state}->snapshot->{cover_path}, $w->{meta}->cover_path($ID), 'cover_path');
+	ok(!exists $w->{state}->snapshot->{cover_path}, 'snapshot bez putanje fajla na serveru');
 
 	# omot vec postoji: ne preuzima se ponovo
 	my $w2 = world();
@@ -466,6 +475,11 @@ sub loaded {
 	$st = $w->{state};
 	$st->request_play('aa:bb', 1);
 	$w->{toc} = $TOC2;
+	my $reads = $w->{reads};
+	my ($lok, $lerr) = $st->on_load;
+	is($lerr->{error}, 'drive_busy', 'load tokom kesiranja -> drive_busy');
+	is($w->{reads}, $reads, 'load tokom kesiranja: nema read_toc ioctl-a');
+	$w->{cache}{busy} = 0;    # kes stao (npr. pesme pukle jer je disk izvadjen)
 	$st->on_load;
 	ok($w->{cache}{clears} >= 1, 'zamenjen disk: kes starog obrisan');
 	is($st->snapshot->{status}, 'reading', 'zamenjen disk: reading');
@@ -574,6 +588,177 @@ sub loaded {
 	ok(!defined $w->{state}->disc_info('x' x 28), 'disc_info: nepoznat disk');
 	$w->{state}->on_eject;
 	is($w->{state}->disc_info($ID)->{album}, 'The Story of Jazz', 'disc_info: posle eject-a iz MetaCache-a');
+}
+
+# ---------- fix round 1: cd-info (lookup) cuva drajv ----------
+{
+	# load (force/offline) dok traje rip ili kes -> drive_busy, bez ioctl-a
+	my $w = loaded();
+	my $st = $w->{state};
+	$w->{cache}->complete_all(9);
+	$st->request_rip;
+	my $reads = $w->{reads};
+	for my $o ([ force => 1 ], [ offline => 1 ], []) {
+		my ($ok, $err) = $st->on_load(@$o);
+		is($err->{error}, 'drive_busy', "load (@$o) tokom ripa -> drive_busy");
+	}
+	is($w->{reads}, $reads, 'load tokom ripa: nema read_toc');
+	is(scalar @{ $w->{lookup}{calls} }, 1, 'load tokom ripa: nema lookup-a');
+
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	my ($ok, $err) = $st->on_load(force => 1);
+	is($err->{error}, 'drive_busy', 'force load tokom kesiranja -> drive_busy');
+
+	# cd-info radi: drive_busy 'lookup'; load odbijen
+	$w = world();
+	$st = $w->{state};
+	$st->on_load(offline => 1);
+	$w->{cdinfo} = 1;
+	is($st->drive_busy, 'lookup', 'cd-info radi -> drive_busy lookup');
+	$reads = $w->{reads};
+	($ok, $err) = $st->on_load(force => 1);
+	is($err->{error}, 'drive_busy', 'load dok radi cd-info -> drive_busy');
+	is($w->{reads}, $reads, 'load dok radi cd-info: nema ioctl-a');
+	$st->on_drive_status(1, undef);
+	is($st->snapshot->{status}, 'reading', 'polling ne radi dok radi cd-info');
+
+	# eject dok radi cd-info: ubija cd-info i ide odlozenim putem
+	$st->eject;
+	is($w->{lookup_kills}, 1, 'eject ubija cd-info');
+	is_deeply($w->{eject_args}, [1], 'eject dok radi cd-info: odlozeno (was_busy)');
+	is($st->snapshot->{status}, 'empty', 'eject: empty');
+
+	# eject bez posla: odmah
+	$w = loaded();
+	$w->{state}->eject;
+	is_deeply($w->{eject_args}, [0], 'eject bez posla: odmah');
+
+	# kraj lookup-a ubija cd-info
+	$w = world();
+	$st = $w->{state};
+	$st->on_load(offline => 1);
+	$w->{cdinfo} = 1;
+	$w->{lookup}->last_cb->(mkresult());
+	is($w->{lookup_kills}, 1, 'lookup gotov -> cd-info ubijen');
+
+	# Play/rip dok cd-info jos zivi: ubija ga i odbija (drajv ne sme da cita dva procesa)
+	($ok, $err) = $st->request_play('aa:bb', 1);
+	is($err->{error}, 'drive_busy', 'Play dok cd-info zivi -> drive_busy');
+	is(scalar @{ $w->{cache}{starts} }, 0, 'kes nije pokrenut dok cd-info zivi');
+	($ok, $err) = $st->request_rip;
+	is($err->{error}, 'drive_busy', 'rip dok cd-info zivi -> drive_busy');
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'rip nije dodat dok cd-info zivi');
+	ok($w->{lookup_kills} >= 2, 'zahtev ubija cd-info');
+	$w->{cdinfo} = 0;
+	($ok, $err) = $st->request_play('aa:bb', 1);
+	ok($ok, 'Play posle cd-info radi');
+
+	# autoRip ceka da cd-info zavrsi
+	$w = world(prefs => { autoRip => 1 });
+	$st = $w->{state};
+	$st->on_load;
+	$w->{cdinfo} = 1;
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'autoRip ceka cd-info');
+	$w->{cdinfo} = 0;
+	$st->on_lookup_idle;
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'autoRip posle cd-info');
+	$st->on_lookup_idle;
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'autoRip samo jednom');
+
+	# shutdown ubija cd-info
+	$w = world();
+	$w->{cdinfo} = 1;
+	$w->{state}->shutdown;
+	is($w->{lookup_kills}, 1, 'shutdown ubija cd-info');
+}
+
+# ---------- eject_event ----------
+{
+	# bez posla: proverava drajv
+	my $w = loaded();
+	my $st = $w->{state};
+	$w->{drive} = [ 4, undef ];
+	my ($ok, $err, $info) = $st->on_eject_event;
+	is($st->snapshot->{status}, 'ready', 'eject_event, disk i dalje unutra -> ignorisan');
+	$w->{drive} = [ 2, undef ];
+	$st->on_eject_event;
+	is($st->snapshot->{status}, 'empty', 'eject_event, nema diska -> empty');
+
+	# tokom kesiranja: bez ioctl-a, provera odlozena
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	my $calls = $w->{drive_calls};
+	$st->on_eject_event;
+	is($w->{drive_calls}, $calls, 'eject_event tokom kesiranja: nema ioctl-a');
+	is($st->snapshot->{status}, 'ready', 'eject_event tokom kesiranja: odlozeno');
+	$w->{cache}{busy} = 0;    # pesme pukle, kes stao
+	$st->on_drive_status(1, undef);
+	is($st->snapshot->{status}, 'empty', 'odlozena provera: disk izvadjen -> empty');
+
+	# odlozena provera, a u drajvu je (drugi) disk: ponovo se cita
+	$w = loaded();
+	$st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$st->request_play('aa:bb', 1);
+	$st->on_eject_event;
+	$w->{cache}{busy} = 0;
+	$w->{toc} = $TOC2;
+	$st->on_drive_status(4, undef);
+	isnt($st->snapshot->{discid}, $ID, 'odlozena provera: novi disk se cita');
+
+	# rip sa eject_after: cyanrip -Q otvara fioku -> eject_event ne prekida zavrsen rip
+	$w = loaded();
+	$st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$st->request_rip(eject => 1);
+	$st->on_eject_event;
+	is_deeply($w->{ripper}{aborts}, [], 'eject_event tokom ripa sa eject_after: rip se ne prekida');
+	is($st->snapshot->{status}, 'ready', 'eject_event tokom ripa sa eject_after: stanje ostaje');
+	$w->{ripper}{current} = undef;    # rip zavrsen
+	$st->on_drive_status(2, undef);
+	is($st->snapshot->{status}, 'empty', 'posle ripa: fioka otvorena -> empty');
+
+	# rip bez eject_after: provera odlozena, rip se ne prekida dogadjajem
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_rip(eject => 0);
+	$calls = $w->{drive_calls};
+	$st->on_eject_event;
+	is_deeply($w->{ripper}{aborts}, [], 'eject_event tokom ripa: bez prekida (cyanrip sam pada ako je disk izvadjen)');
+	is($w->{drive_calls}, $calls, 'eject_event tokom ripa: nema ioctl-a');
+}
+
+# ---------- sitnice ----------
+{
+	# posle on_eject novi DISC_OK cita disk
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$st->on_eject;
+	my $r0 = $w->{reads};
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, $r0 + 1, 'posle eject-a DISC_OK ponovo cita disk');
+	is($st->snapshot->{discid}, $ID, 'posle eject-a disk ponovo ucitan');
+
+	# edit: n mora biti broj (bez upozorenja)
+	$w = loaded();
+	my @warn;
+	local $SIG{__WARN__} = sub { push @warn, @_ };
+	my ($ok) = $w->{state}->edit({ tracks => [ { n => 'abc', title => 'X' }, { n => '2', title => 'Dva' } ] });
+	ok($ok, 'edit sa losim n');
+	is($w->{state}->snapshot->{metadata}{tracks}[1]{title}, 'Dva', 'edit: ispravan n primenjen');
+	is_deeply(\@warn, [], 'edit: bez upozorenja za n koji nije broj');
+
+	# rip folder sa ..
+	$w = loaded();
+	my ($ok2, $err) = $w->{state}->request_rip(dir => '/mnt/../etc');
+	is($err->{error}, 'bad_args', 'rip: folder sa .. odbijen');
+	($ok2, $err) = $w->{state}->request_rip(dir => '/mnt/x/..');
+	is($err->{error}, 'bad_args', 'rip: folder koji se zavrsava sa .. odbijen');
 }
 
 done_testing;

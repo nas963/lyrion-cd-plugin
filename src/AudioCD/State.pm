@@ -17,10 +17,15 @@ package Plugins::AudioCD::State;
 #   missing_tools => sub -> imena alata koji nedostaju
 #   notify      => sub($history_entry)       kraj ripa (kad je pref notify)
 #   kill_all    => sub                        gasenje: ubija sve procese
+#   drive_status => sub($dev) -> ($code, $err)  provera za eject_event (ioctl)
+#   lookup_busy => sub -> 0|1                 radi li cd-info (Lookup), koji drzi drajv
+#   kill_lookup => sub                        ubija cd-info (asinhrono)
 #   on_change   => sub                        stanje promenjeno
 #   log         => sub($nivo, $poruka)
 #
-# Pravila: drajv radi jednu stvar (cache ili rip); Play tokom ripa samo ako je disk ceo u kesu;
+# Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok je zauzet nema ioctl-a
+# (load, eject_event), jer bi ioctl na drajvu koji cita drugi proces blokirao LMS;
+# Play tokom ripa samo ako je disk ceo u kesu;
 # drugi Play istog diska koristi isti kes; izbacivanje prekida sve poslove i brise stanje;
 # zakasneli odgovori (lookup, omot) starog diska se ignorisu (brojac generacija).
 
@@ -46,6 +51,9 @@ my %NOOP = (
 	missing_tools => sub { () },
 	notify        => sub { },
 	kill_all      => sub { },
+	drive_status  => sub { (undef, 'io') },
+	lookup_busy   => sub { 0 },
+	kill_lookup   => sub { },
 	on_change     => sub { },
 	log           => sub { },
 );
@@ -117,16 +125,27 @@ sub _cache_complete {
 	return 1;
 }
 
+# 'rip' | 'cache' | 'lookup' (cd-info) | 'none'
 sub drive_busy {
 	my ($self) = @_;
-	return 'rip'   if $self->{d}{ripper}->busy;
-	return 'cache' if $self->{d}{cache}->busy;
+	return 'rip'    if $self->{d}{ripper}->busy;
+	return 'cache'  if $self->{d}{cache}->busy;
+	return 'lookup' if $self->{d}{lookup_busy}->();
 	return 'none';
+}
+
+sub _kill_lookup {
+	my ($self) = @_;
+	return unless $self->{d}{lookup_busy}->();
+	eval { $self->{d}{kill_lookup}->(); 1 } or $self->_log(warn => "cd-info: $@");
+	return;
 }
 
 # Prekida poslove na disku koji vise nije u drajvu.
 sub _drop_disc {
 	my ($self) = @_;
+	$self->_kill_lookup;
+	delete $self->{pending_autorip};
 	my $c = $self->{d}{cache};
 	eval { $c->stop; $c->clear; 1 } or $self->_log(warn => "kes: $@");
 	my $r = $self->{d}{ripper};
@@ -140,6 +159,8 @@ sub _drop_disc {
 sub on_load {
 	my ($self, %o) = @_;
 	return _err('stopped') if $self->{stopped};
+	# zauzet drajv: bez read_toc ioctl-a (blokirao bi LMS); disk se proverava kad posao zavrsi
+	return _err('drive_busy', busy => $self->drive_busy) if $self->drive_busy ne 'none';
 	my ($toc, $err) = eval { $self->{d}{read_toc}->($self->_device) };
 	$err = 'io' if !$toc && !defined $err;
 
@@ -213,6 +234,7 @@ sub on_lookup_done {
 		my $merged = eval { $mc->get($self->{discid}) };
 		$res = $merged if ref $merged eq 'HASH' && ref $merged->{disc} eq 'HASH';
 	}
+	$self->_kill_lookup;    # rezultat stigao: cd-info vise ne treba (pusta drajv)
 	$self->_apply($res);
 	return;
 }
@@ -257,8 +279,22 @@ sub _auto_rip {
 	# Isti disk posle restarta ili ponovnog ubacivanja se ne ripuje ponovo.
 	return if grep { defined $_->{discid} && $_->{discid} eq $id && ($_->{result} // '') =~ /^(?:ok|accurip_mismatch)\z/ }
 		@{ $self->{d}{ripper}->history };
+	if ($self->{d}{lookup_busy}->()) {    # cd-info jos pusta drajv: rip kad zavrsi (on_lookup_idle)
+		$self->{pending_autorip} = $id;
+		return;
+	}
+	delete $self->{pending_autorip};
 	my ($ok, $err) = $self->request_rip(profile => $self->_pref('autoRipProfile'));
 	$self->_log(warn => "automatski rip nije pokrenut: $err->{error}") unless $ok;
+	return;
+}
+
+# Plugin javlja da je cd-info zavrsio: odlozeni automatski rip.
+sub on_lookup_idle {
+	my ($self) = @_;
+	my $id = delete $self->{pending_autorip};
+	return if $self->{stopped} || !defined $id || !defined $self->{discid} || $id ne $self->{discid} || !$self->_ready;
+	$self->_auto_rip;
 	return;
 }
 
@@ -266,6 +302,8 @@ sub on_eject {
 	my ($self) = @_;
 	$self->_drop_disc;
 	$self->{gen}++;
+	$self->{last_drive} = 0;    # sledeci DISC_OK ponovo cita disk
+	delete $self->{recheck};
 	$self->_reset('empty');
 	$self->_changed;
 	return (1, undef);
@@ -287,6 +325,10 @@ sub on_drive_status {
 	my $ok   = defined $code && $code == CDS_DISC_OK ? 1 : 0;
 	my $prev = $self->{last_drive};
 	$self->{last_drive} = $ok;
+	if (delete $self->{recheck}) {    # odlozen eject_event: posao je zavrsen, sada se proverava
+		return $self->on_load if $ok;
+		return $self->on_eject if defined $self->{discid};
+	}
 	if ($ok) {
 		$self->on_load if !$prev && $self->_pref('autoLoad');
 		return;
@@ -301,6 +343,28 @@ sub on_drive_status {
 	}
 	$self->on_eject if defined $self->{discid};
 	return;
+}
+
+# udev: disk izvadjen. Bez posla se proverava drajv (ioctl); tokom posla nema ioctl-a: rip sa
+# eject_after (cyanrip -Q sam otvara fioku) se ne prekida, a inace se provera odlaze do kraja posla
+# (disk izvadjen usred posla obara cd-paranoia/cyanrip, pa posao ionako zavrsava).
+sub on_eject_event {
+	my ($self) = @_;
+	return _err('stopped') if $self->{stopped};
+	my $busy = $self->drive_busy;
+	if ($busy ne 'none') {
+		my $cur = $busy eq 'rip' ? $self->{d}{ripper}->status->{current} : undef;
+		if ($cur && $cur->{eject_after}) {
+			$self->{last_drive} = 1;    # posle ripa polling vidi otvorenu fioku
+			return (1, undef, 'eject_after');
+		}
+		$self->{recheck} = 1;
+		return (1, undef, 'deferred');
+	}
+	my ($code) = eval { $self->{d}{drive_status}->($self->_device) };
+	return (1, undef, 'ignored') if defined $code && $code == CDS_DISC_OK;
+	$self->on_eject;
+	return (1, undef, 'ejected');
 }
 
 # ---------- metapodaci ----------
@@ -347,7 +411,7 @@ sub edit {
 	if (exists $in->{tracks}) {
 		return _err('bad_args', field => 'tracks') unless ref $in->{tracks} eq 'ARRAY';
 		for my $t (@{ $in->{tracks} }) {
-			next unless ref $t eq 'HASH' && defined $t->{n};
+			next unless ref $t eq 'HASH' && defined $t->{n} && !ref $t->{n} && $t->{n} =~ /^\d+\z/;
 			my ($dst) = grep { $_->{n} == $t->{n} } @{ $new{tracks} };
 			next unless $dst;
 			for my $k (qw(title artist)) {
@@ -373,6 +437,13 @@ sub disc_info {
 
 # ---------- poslovi ----------
 
+# cd-info jos drzi drajv: ubij ga i odbij zahtev (drajv nikad ne citaju dva procesa); ponovi za trenutak.
+sub _lookup_busy_err {
+	my ($self) = @_;
+	$self->_kill_lookup;
+	return _err('drive_busy', busy => 'lookup');
+}
+
 sub request_play {
 	my ($self, $client_id, $n) = @_;
 	return _err('no_disc') unless $self->_ready;
@@ -380,7 +451,9 @@ sub request_play {
 	return _err('bad_track') unless defined $n && $n =~ /^\d+\z/ && grep { $_ == $n } @audio;
 
 	unless ($self->_cache_complete) {
-		return _err('drive_busy') if $self->drive_busy eq 'rip';
+		my $busy = $self->drive_busy;
+		return _err('drive_busy') if $busy eq 'rip';
+		return $self->_lookup_busy_err if $busy eq 'lookup';
 		my @miss = $self->_missing('cd-paranoia', 'flac');
 		return _err('missing_tools', tools => \@miss) if @miss;
 		# isti disk: Cache nastavlja postojeci kes (gotove pesme ostaju, izabrana ide napred)
@@ -399,6 +472,7 @@ sub request_rip {
 	my ($self, %a) = @_;
 	return _err('no_disc') unless $self->_ready;
 	return _err('drive_busy') if $self->drive_busy eq 'cache' && !$self->_cache_complete;
+	return $self->_lookup_busy_err if $self->{d}{lookup_busy}->();
 	my @miss = $self->_missing('cyanrip');
 	return _err('missing_tools', tools => \@miss) if @miss;
 
@@ -452,6 +526,7 @@ sub shutdown {
 	my ($self) = @_;
 	$self->{stopped} = 1;
 	$self->{gen}++;
+	$self->_kill_lookup;
 	eval { $self->{d}{kill_all}->(); 1 } or $self->_log(warn => "kill_all: $@");
 	eval { $self->{d}{cache}->clear; 1 } or $self->_log(warn => "kes: $@");
 	my %dirs = (%{ $self->{rip_dirs} });
@@ -481,7 +556,6 @@ sub snapshot {
 		metadata      => $self->{disc},
 		cover         => defined $cover ? 1 : 0,
 		cover_url     => defined $cover ? "/plugins/AudioCD/cover/$self->{discid}.jpg" : undef,
-		cover_path    => $cover,
 		drive_busy    => $self->drive_busy,
 		cache         => { %$cs, discid => $self->{d}{cache}->discid },
 		rip           => $self->{d}{ripper}->status,

@@ -16,6 +16,16 @@ my $out = `python3 -c "$read" $dir/install.xml`;
 is $?, 0, 'install.xml je ispravan XML';
 like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/basic\.html}, 'modul, naziv i podesavanja';
 
+# Verzija ima jedan izvor istine: Plugin.pm $VERSION (User-Agent, hello) mora biti ista kao u install.xml
+{
+	open my $x, '<', "$dir/install.xml" or die $!;
+	my ($xml_ver) = do { local $/; <$x> } =~ m{<version>([^<]+)</version>};
+	open my $p, '<', "$dir/Plugin.pm" or die $!;
+	my ($pm_ver) = do { local $/; <$p> } =~ m{our \$VERSION = '([^']+)';};
+	ok(defined $xml_ver && defined $pm_ver, 'verzija u install.xml i Plugin.pm');
+	is($pm_ver, $xml_ver, 'Plugin.pm $VERSION == install.xml version');
+}
+
 open my $strings, '<', "$dir/strings.txt" or die $!;
 my $text = do { local $/; <$strings> };
 like $text, qr/^PLUGIN_AUDIOCD\n\tEN\t/m, 'string naziva plugina';

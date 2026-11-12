@@ -44,7 +44,8 @@ use constant POLL_INTERVAL => 5;     # s, polling drajva (rezerva za udev)
 use constant START_DELAY   => 3;     # s, prva provera drajva posle starta
 use constant HTTP_TIMEOUT  => 15;
 use constant EJECT_DELAY   => 1.5;   # s, posle prekida posla pa izbacivanje
-use constant RUN_CMD_LIMIT => 12;    # s, cd-info se ubija posle ovoliko (Lookup ceka 10 s)
+use constant RUN_CMD_LIMIT => 10;    # s, cd-info se ubija posle ovoliko (= Lookup CDTEXT_TIMEOUT)
+use constant EJECT_TRIES   => 20;    # najvise toliko pokusaja (po EJECT_DELAY) da procesi oslobode drajv
 
 my $UA = "AudioCD/$VERSION ( https://github.com/nas963/lyrion-cd-plugin )";
 
@@ -148,6 +149,7 @@ sub _run_cmd {
 		on_exit => sub {
 			delete $RUN_CMD{$pid} if defined $pid;
 			$cb->(join '', map { Encode::encode('UTF-8', $_) . "\n" } @out);
+			$STATE->on_lookup_idle if $STATE && !%RUN_CMD;    # odlozeni automatski rip
 		},
 	);
 	$pid = $job->pid;
@@ -234,7 +236,22 @@ sub _eject {
 			on_exit => sub { $log->warn("eject $dev: status $_[0]") if $_[0] },
 		);
 	};
-	$was_busy ? _timer(EJECT_DELAY, $do) : $do->();
+	return $do->() unless $was_busy;
+	# Posao je upravo prekinut: CDROMEJECT tek kad nijedan proces vise ne drzi drajv (cd-info,
+	# cd-paranoia, cyanrip umiru asinhrono), inace bi ioctl blokirao LMS. Premestanja ne diraju drajv.
+	my $tries = 0;
+	my $wait;
+	$wait = sub {
+		my $drive_jobs = Plugins::AudioCD::Jobs::running_count() - scalar(keys %MOVING_JOB);
+		if ($drive_jobs <= 0) { undef $wait; return $do->() }
+		if (++$tries > EJECT_TRIES) {
+			undef $wait;
+			$log->warn("izbacivanje odustalo: procesi i dalje drze drajv");
+			return;
+		}
+		_timer(EJECT_DELAY, $wait);
+	};
+	_timer(EJECT_DELAY, $wait);
 	return;
 }
 
@@ -322,6 +339,9 @@ sub initPlugin {
 		missing_tools => \&_missing_tools,
 		notify        => \&_notify,
 		kill_all      => \&Plugins::AudioCD::Jobs::kill_all,
+		drive_status  => \&Plugins::AudioCD::Drive::drive_status,
+		lookup_busy   => sub { %RUN_CMD ? 1 : 0 },
+		kill_lookup   => sub { $_->kill for values %RUN_CMD },
 		log           => sub { my ($lvl, $m) = @_; $lvl eq 'warn' ? $log->warn($m) : $log->info($m) },
 		on_change     => sub {
 			my $s = $STATE or return;
@@ -359,7 +379,7 @@ sub initPlugin {
 sub _poll {
 	my ($first) = @_;
 	# ioctl na drajvu koji cita drugi proces (cd-info, cd-paranoia, cyanrip) blokira LMS: tada se preskace
-	if ($STATE && !%RUN_CMD && $STATE->drive_busy eq 'none' && ($first || $prefs->get('polling'))) {
+	if ($STATE && $STATE->drive_busy eq 'none' &&($first || $prefs->get('polling'))) {
 		my ($code, $err) = Plugins::AudioCD::Drive::drive_status(_device());
 		eval { $STATE->on_drive_status($code, $err); 1 } or $log->error("polling: $@");
 	}
@@ -406,16 +426,11 @@ sub _cli_load {
 	_done($request, $ok, $err, status => $STATE->snapshot->{status});
 }
 
-# udev: disk izvadjen. Ako drajv i dalje javlja disk, dogadjaj se ignorise (npr. promena medija tokom ripa).
-# Dok radi cd-info provera se preskace (ioctl bi cekao na cd-info).
+# udev: disk izvadjen. Pravila (ioctl samo kad je drajv slobodan, eject_after rip se ne prekida) su u State.
 sub _cli_eject_event {
 	my ($request) = @_;
-	my ($code) = %RUN_CMD ? () : Plugins::AudioCD::Drive::drive_status(_device());
-	if (defined $code && $code == Plugins::AudioCD::Drive::CDS_DISC_OK()) {
-		return _done($request, 1, undef, ignored => 1);
-	}
-	my ($ok, $err) = $STATE->on_eject;
-	_done($request, $ok, $err);
+	my ($ok, $err, $what) = $STATE->on_eject_event;
+	_done($request, $ok, $err, result => $what);
 }
 
 sub _cli_status {
@@ -498,16 +513,11 @@ sub _cli_move {
 	return _done($request, undef, { error => 'not_found' })
 		unless $e && defined $e->{path} && ($e->{result} // '') =~ /^(?:ok|accurip_mismatch)\z/;
 
-	my @media = map { (my $m = $_) =~ s{/+\z}{}; $m } grep { defined && length } @{ Slim::Utils::Misc::getMediaDirs('audio') || [] };
-	my $lib = _param($request, 'dest') // $prefs->get('libraryDir');
-	$lib = $media[0] unless defined $lib && length $lib;
-	return _done($request, undef, { error => 'bad_args', field => 'dest' })
-		unless defined $lib && $lib =~ m{^/} && $lib !~ m{(?:^|/)\.\.(?:/|\z)};
-	$lib =~ s{/+\z}{};
-	return _done($request, undef, { error => 'outside_library' })
-		unless grep { $lib eq $_ || index($lib, "$_/") == 0 } @media;
-
 	return _done($request, undef, { error => 'not_available' }) unless eval { require Plugins::AudioCD::Library; 1 };
+	my ($lib, $lerr) = Plugins::AudioCD::Library::library_dir(_param($request, 'dest'), $prefs->get('libraryDir'),
+		Slim::Utils::Misc::getMediaDirs('audio'));
+	return _done($request, undef, { error => $lerr, $lerr eq 'bad_args' ? (field => 'dest') : () }) if $lerr;
+
 	my ($dest, $err) = Plugins::AudioCD::Library::plan_move($e->{path}, $lib, _rips_dir());
 	return _done($request, undef, { error => $err }) if $err;
 	return _done($request, undef, { error => 'busy' }) if $MOVING{$id};

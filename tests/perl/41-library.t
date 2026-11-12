@@ -163,4 +163,19 @@ is_deeply \@res, [[undef, 'exists']], 'async: exists';
 is_deeply $L->can('rescan_cmd')->('/mnt/m/CD/Đ B/Album #1'),
 	[ 'rescan', 'full', 'file:///mnt/m/CD/%C4%90%20B/Album%20%231' ], 'rescan_cmd: file URL';
 
+# library_dir: folder biblioteke iz zahteva / prefs-a / prvog muzickog foldera, samo ispod muzickih foldera
+{
+	my $f = $L->can('library_dir');
+	my $media = [ '/mnt/m/Muzika/', '/srv/music' ];
+	is_deeply [ $f->(undef, undef, $media) ], [ '/mnt/m/Muzika', undef ], 'library_dir: podrazumevano prvi muzicki folder';
+	is_deeply [ $f->('', '/srv/music/CD', $media) ], [ '/srv/music/CD', undef ], 'library_dir: iz prefs-a';
+	is_deeply [ $f->('/mnt/m/Muzika/CD/', 'x', $media) ], [ '/mnt/m/Muzika/CD', undef ], 'library_dir: iz zahteva, bez / na kraju';
+	is_deeply [ $f->('/mnt/m/Muzika/../etc', undef, $media) ], [ undef, 'bad_args' ], 'library_dir: .. odbijen';
+	is_deeply [ $f->('/mnt/m/Muzika/CD/..', undef, $media) ], [ undef, 'bad_args' ], 'library_dir: .. na kraju odbijen';
+	is_deeply [ $f->('relativno/CD', undef, $media) ], [ undef, 'bad_args' ], 'library_dir: relativna putanja odbijena';
+	is_deeply [ $f->('/mnt/m/MuzikaX', undef, $media) ], [ undef, 'outside_library' ], 'library_dir: slican prefiks nije ispod';
+	is_deeply [ $f->('/etc', undef, $media) ], [ undef, 'outside_library' ], 'library_dir: van muzickih foldera';
+	is_deeply [ $f->(undef, undef, []) ], [ undef, 'bad_args' ], 'library_dir: nema muzickih foldera';
+}
+
 done_testing;

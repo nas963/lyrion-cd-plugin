@@ -24,6 +24,18 @@ sub _clean {
 	return $p;
 }
 
+# library_dir($iz_zahteva, $iz_prefs, \@muzicki_folderi) -> ($dir, undef) | (undef, 'bad_args'|'outside_library')
+# Folder biblioteke: zahtev, pa pref, pa prvi LMS muzicki folder; apsolutan, bez '..', ispod muzickog foldera.
+sub library_dir {
+	my ($req, $pref, $media) = @_;
+	my @m = map { _clean($_) } grep { defined && length } @{ $media || [] };
+	my $lib = defined $req && length $req ? $req : defined $pref && length $pref ? $pref : $m[0];
+	return (undef, 'bad_args') unless defined $lib && $lib =~ m{^/} && $lib !~ m{(?:^|/)\.\.(?:/|\z)};
+	$lib = _clean($lib);
+	return (undef, 'outside_library') unless grep { $lib eq $_ || index($lib, "$_/") == 0 } @m;
+	return ($lib, undef);
+}
+
 # plan_move($src_album_dir, $library_dir, $rips_root) -> ($dest, $err)
 sub plan_move {
 	my ($src, $lib, $rips) = @_;

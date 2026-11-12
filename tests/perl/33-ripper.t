@@ -209,13 +209,14 @@ sub mk {
     $AUTO = undef;
     my $r = mk();
     my ($a) = $r->enqueue(disc => mkdisc(discid => 'a' x 28, album => 'A1'), toc => $toc, rips_dir => $rips);
-    my ($b, $e) = $r->enqueue(disc => mkdisc(discid => 'b' x 28, album => 'A2'), toc => $toc, rips_dir => $rips);
+    my ($b, $e) = $r->enqueue(disc => mkdisc(discid => 'b' x 28, album => 'A2'), toc => $toc, rips_dir => $rips, eject_after => 1);
     ok($b && !$e, 'drugi enqueue prihvacen');
     is(scalar @SPAWNS, 1, 'samo prvi radi');
     ok($r->busy, 'zauzet');
     my $st = $r->status;
     is($st->{current}{id}, $a, 'status current');
     is($st->{current}{state}, 'ripping', 'state ripping');
+    is($st->{current}{eject_after}, 0, 'status: eject_after 0');
     is(scalar @{ $st->{queue} }, 1, 'jedan u redu');
     is($st->{queue}[0]{id}, $b, 'u redu je drugi');
 
@@ -235,6 +236,7 @@ sub mk {
     $SPAWNS[0]{on_exit}->(0);
     is(scalar @SPAWNS, 2, 'drugi krece posle prvog');
     is($r->status->{current}{id}, $b, 'sada drugi tece');
+    is($r->status->{current}{eject_after}, 1, 'status: eject_after 1 (cyanrip -Q)');
     is(scalar @{ $r->status->{queue} }, 0, 'red prazan');
     $AUTO = sub { write_rip($_[0]); $_[0]{on_exit}->(0) };
     write_rip($SPAWNS[1]);
