@@ -168,4 +168,14 @@ is_deeply(parse(slurp('mb-notfound.json'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAA-', 9), [
 	is_deeply(parse('{"releases":"x"}', 'x-', 9), [], 'releases nije niz -> []');
 }
 
+# --- has_exact_match ---
+{
+	my $x = $MB->can('has_exact_match');
+	ok($x->(slurp('mb-single.json'), 'n5_jIEg0jYtxLe_N7x39y_GnJow-'), 'exact: tacan disc ID');
+	ok(!$x->(slurp('mb-fuzzy-real.json'), 'dBFBpdDGyUnu4ofAwN5ZrxozKwM-'), 'exact: fuzzy odgovor nije tacan');
+	ok(!$x->(slurp('mb-notfound.json'), 'AAAAAAAAAAAAAAAAAAAAAAAAAAA-'), 'exact: 404 telo');
+	ok(!$x->('nije json', 'x'), 'exact: los JSON');
+	ok(!$x->(undef, undef), 'exact: undef');
+}
+
 done_testing();

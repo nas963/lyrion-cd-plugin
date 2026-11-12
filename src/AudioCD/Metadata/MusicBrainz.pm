@@ -162,6 +162,23 @@ sub parse_releases {
 	return \@out;
 }
 
+# Tacan pogodak: odgovor sadrzi medij ciji discs[].id je nas disc ID (a ne samo priblizan pogodak po TOC-u).
+# Lookup ovim prepoznaje "fuzzy" rezultat. Nikad ne umire.
+sub has_exact_match {
+	my ($json_text, $discid) = @_;
+	return 0 unless defined $discid;
+	my $data = eval { JSON::PP->new->utf8->decode(defined $json_text ? $json_text : '') };
+	return 0 unless ref $data eq 'HASH' && ref $data->{releases} eq 'ARRAY';
+	for my $release (@{ $data->{releases} }) {
+		next unless ref $release eq 'HASH' && ref $release->{media} eq 'ARRAY';
+		for my $m (@{ $release->{media} }) {
+			next unless ref $m eq 'HASH' && ref $m->{discs} eq 'ARRAY';
+			return 1 if grep { ref $_ eq 'HASH' && defined $_->{id} && $_->{id} eq $discid } @{ $m->{discs} };
+		}
+	}
+	return 0;
+}
+
 # (release front, release-group front) -- Lookup probava redom.
 sub cover_urls {
 	my ($candidate) = @_;
