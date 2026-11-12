@@ -17,6 +17,7 @@ use JSON::PP ();
 use Time::HiRes ();
 
 use Slim::Control::Request;
+use Slim::Menu::BrowseLibrary;
 use Slim::Networking::Select;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::Client;
@@ -25,14 +26,17 @@ use Slim::Schema;
 use Slim::Utils::Log;
 use Slim::Utils::Misc;
 use Slim::Utils::Prefs;
+use Slim::Utils::Strings ();
 use Slim::Utils::Timers;
 
 use Plugins::AudioCD::Cache;
 use Plugins::AudioCD::Config;
 use Plugins::AudioCD::Drive;
 use Plugins::AudioCD::Jobs;
+use Plugins::AudioCD::MaterialBridge;
 use Plugins::AudioCD::MetaCache;
 use Plugins::AudioCD::Metadata::Lookup;
+use Plugins::AudioCD::Menu;
 use Plugins::AudioCD::ProtocolHandler;
 use Plugins::AudioCD::Ripper;
 use Plugins::AudioCD::State;
@@ -302,6 +306,27 @@ sub _clear_dir {
 	return;
 }
 
+# ---------- meni (My Music) i Material ----------
+
+# Cvor "Audio CD" u My Music (aplikacije, Material); pesme/akcije su u Menu.pm.
+sub _register_menu {
+	Slim::Menu::BrowseLibrary->registerNode(Plugins::AudioCD::Menu::node(sub {
+		my ($client, $cb, $args) = @_;
+		Plugins::AudioCD::Menu::feed($client, $cb, $args, $STATE ? $STATE->snapshot : undef, {
+			string  => sub { my ($token, @a) = @_; return Slim::Utils::Strings::cstring($client, $token, @a) },
+			profile => $prefs->get('profile'),
+		});
+	}));
+	return;
+}
+
+# Blok u <prefs>/material-skin/custom.js koji ucitava audiocd-material.js; Unified Music blok se ne dira.
+sub _install_material_bridge {
+	my $dir = catdir(Slim::Utils::Prefs::dir(), 'material-skin');
+	eval { Plugins::AudioCD::MaterialBridge::install($dir); 1 } or $log->error("Material Skin dodatak nije postavljen: $@");
+	return;
+}
+
 # ---------- init / shutdown ----------
 
 sub initPlugin {
@@ -370,6 +395,9 @@ sub initPlugin {
 	Slim::Player::ProtocolHandlers->registerHandler(audiocd => 'Plugins::AudioCD::ProtocolHandler');
 	Plugins::AudioCD::ProtocolHandler->set_cache($CACHE);
 
+	_register_menu();
+	_install_material_bridge();
+
 	# Web stranica (omot, stavka u Extras) i podesavanja
 	require Plugins::AudioCD::Web;
 	Plugins::AudioCD::Web->init(metacache => $META);
@@ -410,6 +438,7 @@ sub _poll {
 }
 
 sub shutdownPlugin {
+	Slim::Menu::BrowseLibrary->deregisterNode('audiocd');
 	_cancel_timer($POLL);
 	_cancel_timer($_) for values %TIMERS;
 	%TIMERS = ();

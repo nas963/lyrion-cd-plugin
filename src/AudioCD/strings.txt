@@ -605,3 +605,11 @@ PLUGIN_AUDIOCD_SET_SAVED
 PLUGIN_AUDIOCD_UI_RETRY
 	EN	Try again
 	SR	Pokušaj ponovo
+
+PLUGIN_AUDIOCD_MENU_PLAY_ALL
+	EN	Play all
+	SR	Pusti sve
+
+PLUGIN_AUDIOCD_MENU_RIP
+	EN	Rip (%s)
+	SR	Ripuj (%s)
