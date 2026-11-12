@@ -370,6 +370,12 @@ sub initPlugin {
 	Slim::Player::ProtocolHandlers->registerHandler(audiocd => 'Plugins::AudioCD::ProtocolHandler');
 	Plugins::AudioCD::ProtocolHandler->set_cache($CACHE);
 
+	# Web stranica (omot, stavka u Extras) i podesavanja
+	require Plugins::AudioCD::Web;
+	Plugins::AudioCD::Web->init(metacache => $META);
+	require Plugins::AudioCD::Settings;
+	Plugins::AudioCD::Settings->new;
+
 	my %cmd = (
 		load           => [ 0, 0, 1, \&_cli_load ],
 		eject_event    => [ 0, 0, 1, \&_cli_eject_event ],

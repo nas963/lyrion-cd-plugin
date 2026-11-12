@@ -21,3 +21,583 @@ PLUGIN_AUDIOCD_RIP_WARNING
 PLUGIN_AUDIOCD_RIP_FAILED
 	EN	Rip failed
 	SR	Rip nije uspeo
+
+PLUGIN_AUDIOCD_UI_LOAD_CD
+	EN	Load CD
+	SR	Učitaj CD
+
+PLUGIN_AUDIOCD_UI_PLAY
+	EN	Play
+	SR	Play
+
+PLUGIN_AUDIOCD_UI_PLAY_TRACK
+	EN	Play from this track
+	SR	Slušaj od ove pesme
+
+PLUGIN_AUDIOCD_UI_RIP
+	EN	Rip
+	SR	Ripuj
+
+PLUGIN_AUDIOCD_UI_EJECT
+	EN	Eject
+	SR	Eject
+
+PLUGIN_AUDIOCD_UI_EDIT
+	EN	Edit
+	SR	Izmeni
+
+PLUGIN_AUDIOCD_UI_SAVE
+	EN	Save
+	SR	Sačuvaj
+
+PLUGIN_AUDIOCD_UI_CANCEL
+	EN	Cancel
+	SR	Otkaži
+
+PLUGIN_AUDIOCD_UI_CLOSE
+	EN	Close
+	SR	Zatvori
+
+PLUGIN_AUDIOCD_UI_SETTINGS
+	EN	Settings
+	SR	Podešavanja
+
+PLUGIN_AUDIOCD_UI_PLAYER
+	EN	Player
+	SR	Plejer
+
+PLUGIN_AUDIOCD_UI_NO_PLAYERS
+	EN	No players found
+	SR	Nema plejera
+
+PLUGIN_AUDIOCD_UI_ARTIST
+	EN	Artist
+	SR	Izvođač
+
+PLUGIN_AUDIOCD_UI_ALBUM
+	EN	Album
+	SR	Album
+
+PLUGIN_AUDIOCD_UI_YEAR
+	EN	Year
+	SR	Godina
+
+PLUGIN_AUDIOCD_UI_TRACK
+	EN	Track
+	SR	Pesma
+
+PLUGIN_AUDIOCD_UI_TITLE
+	EN	Title
+	SR	Naslov
+
+PLUGIN_AUDIOCD_UI_TRACKS
+	EN	Tracks
+	SR	Pesme
+
+PLUGIN_AUDIOCD_UI_LENGTH
+	EN	Length
+	SR	Trajanje
+
+PLUGIN_AUDIOCD_UI_NO_DISC
+	EN	No disc in the drive.
+	SR	Nema diska u drajvu.
+
+PLUGIN_AUDIOCD_UI_READING
+	EN	Reading the disc and looking up metadata...
+	SR	Čitam disk i tražim metapodatke...
+
+PLUGIN_AUDIOCD_UI_UNTITLED
+	EN	Unknown album
+	SR	Nepoznat album
+
+PLUGIN_AUDIOCD_UI_FUZZY_HINT
+	EN	Approximate match: the disc was not found exactly, so check that this is the right release and pick another one below if it is not.
+	SR	Približno poklapanje: disk nije pronađen tačno, proverite da li je ovo pravo izdanje, a ako nije izaberite drugo ispod.
+
+PLUGIN_AUDIOCD_UI_RELEASE
+	EN	Release
+	SR	Izdanje
+
+PLUGIN_AUDIOCD_UI_SOURCE
+	EN	Source
+	SR	Izvor
+
+PLUGIN_AUDIOCD_UI_SOURCE_MUSICBRAINZ
+	EN	MusicBrainz
+	SR	MusicBrainz
+
+PLUGIN_AUDIOCD_UI_SOURCE_GNUDB
+	EN	GnuDB
+	SR	GnuDB
+
+PLUGIN_AUDIOCD_UI_SOURCE_CDTEXT
+	EN	CD-Text
+	SR	CD-Text
+
+PLUGIN_AUDIOCD_UI_SOURCE_GENERIC
+	EN	No data (generic)
+	SR	Bez podataka (generički)
+
+PLUGIN_AUDIOCD_UI_SOURCE_MANUAL
+	EN	Edited by hand
+	SR	Ručno izmenjeno
+
+PLUGIN_AUDIOCD_UI_EDIT_TITLE
+	EN	Edit metadata
+	SR	Izmena metapodataka
+
+PLUGIN_AUDIOCD_UI_CACHE_PROGRESS
+	EN	Preparing for playback
+	SR	Priprema za slušanje
+
+PLUGIN_AUDIOCD_UI_CACHE_TRACKS
+	EN	{0} of {1} tracks ready
+	SR	Spremno {0} od {1} pesama
+
+PLUGIN_AUDIOCD_UI_TRACK_READY
+	EN	ready
+	SR	spremno
+
+PLUGIN_AUDIOCD_UI_TRACK_FAILED
+	EN	failed
+	SR	nije uspelo
+
+PLUGIN_AUDIOCD_UI_RIP_PROGRESS
+	EN	Ripping
+	SR	Rip u toku
+
+PLUGIN_AUDIOCD_UI_RIP_TRACK
+	EN	Track {0}: {1}%
+	SR	Pesma {0}: {1}%
+
+PLUGIN_AUDIOCD_UI_RIP_CANCELLING
+	EN	Cancelling...
+	SR	Otkazujem...
+
+PLUGIN_AUDIOCD_UI_QUEUE
+	EN	Queue
+	SR	Red
+
+PLUGIN_AUDIOCD_UI_CANCEL_RIP
+	EN	Cancel
+	SR	Otkaži
+
+PLUGIN_AUDIOCD_UI_HISTORY
+	EN	History
+	SR	Istorija
+
+PLUGIN_AUDIOCD_UI_HISTORY_EMPTY
+	EN	No rips yet.
+	SR	Još nema ripova.
+
+PLUGIN_AUDIOCD_UI_MOVE
+	EN	Move to library
+	SR	Premesti u biblioteku
+
+PLUGIN_AUDIOCD_UI_MOVE_CONFIRM
+	EN	Move "{0}" from the rips folder to the music library? The files are moved, not copied, and the library is rescanned.
+	SR	Premestiti „{0}” iz foldera sa ripovima u muzičku biblioteku? Fajlovi se premeštaju (ne kopiraju) i biblioteka se skenira.
+
+PLUGIN_AUDIOCD_UI_MOVING
+	EN	Moving...
+	SR	Premeštam...
+
+PLUGIN_AUDIOCD_UI_MOVED_TO
+	EN	In the library: {0}
+	SR	U biblioteci: {0}
+
+PLUGIN_AUDIOCD_UI_MOVE_STARTED
+	EN	Move started.
+	SR	Premeštanje je počelo.
+
+PLUGIN_AUDIOCD_UI_RESULT_OK
+	EN	Done
+	SR	Završeno
+
+PLUGIN_AUDIOCD_UI_RESULT_ACCURIP_MISMATCH
+	EN	Done, AccurateRip warning
+	SR	Završeno, AccurateRip upozorenje
+
+PLUGIN_AUDIOCD_UI_RESULT_ERROR
+	EN	Failed
+	SR	Nije uspelo
+
+PLUGIN_AUDIOCD_UI_RESULT_CANCELLED
+	EN	Cancelled
+	SR	Otkazano
+
+PLUGIN_AUDIOCD_UI_REASON_EJECTED
+	EN	the disc was ejected
+	SR	disk je izbačen
+
+PLUGIN_AUDIOCD_UI_REASON_ABORTED
+	EN	interrupted
+	SR	prekinuto
+
+PLUGIN_AUDIOCD_UI_ACCURIP_MATCH
+	EN	AccurateRip: {0} of {1} tracks verified
+	SR	AccurateRip: potvrđeno {0} od {1} pesama
+
+PLUGIN_AUDIOCD_UI_ACCURIP_MISMATCH
+	EN	AccurateRip: {0} of {1} tracks verified, the rest differ
+	SR	AccurateRip: potvrđeno {0} od {1} pesama, ostale se razlikuju
+
+PLUGIN_AUDIOCD_UI_ACCURIP_NOTFOUND
+	EN	Disc not in the AccurateRip database
+	SR	Disk nije u AccurateRip bazi
+
+PLUGIN_AUDIOCD_UI_RIP_DIALOG_TITLE
+	EN	Rip this disc
+	SR	Ripovanje diska
+
+PLUGIN_AUDIOCD_UI_RIP_FOLDER
+	EN	Folder
+	SR	Folder
+
+PLUGIN_AUDIOCD_UI_RIP_FOLDER_HINT
+	EN	Absolute path on the server; leave empty for {0}
+	SR	Apsolutna putanja na serveru; prazno znači {0}
+
+PLUGIN_AUDIOCD_UI_PROFILE
+	EN	Quality profile
+	SR	Profil kvaliteta
+
+PLUGIN_AUDIOCD_UI_PROFILE_FAST
+	EN	Fast (no error correction)
+	SR	Brzo (bez ispravke grešaka)
+
+PLUGIN_AUDIOCD_UI_PROFILE_BALANCED
+	EN	Balanced
+	SR	Uravnoteženo
+
+PLUGIN_AUDIOCD_UI_PROFILE_SECURE
+	EN	Secure (slow, careful)
+	SR	Sigurno (sporo, pažljivo)
+
+PLUGIN_AUDIOCD_UI_EJECT_AFTER
+	EN	Eject the disc when done
+	SR	Izbaci disk posle ripa
+
+PLUGIN_AUDIOCD_UI_START_RIP
+	EN	Start ripping
+	SR	Počni rip
+
+PLUGIN_AUDIOCD_UI_RIP_STARTED
+	EN	Ripping started.
+	SR	Rip je počeo.
+
+PLUGIN_AUDIOCD_UI_PLAY_STARTED
+	EN	Playing on {0}.
+	SR	Svira na: {0}.
+
+PLUGIN_AUDIOCD_UI_EJECTING
+	EN	Ejecting...
+	SR	Izbacujem...
+
+PLUGIN_AUDIOCD_UI_EJECT_CONFIRM
+	EN	Ejecting stops the running jobs (ripping or preparing for playback). Continue?
+	SR	Izbacivanje prekida poslove u toku (rip ili pripremu za slušanje). Nastaviti?
+
+PLUGIN_AUDIOCD_UI_LOADING
+	EN	Loading the disc...
+	SR	Učitavam disk...
+
+PLUGIN_AUDIOCD_UI_SAVED
+	EN	Saved.
+	SR	Sačuvano.
+
+PLUGIN_AUDIOCD_UI_DRIVE_BUSY
+	EN	Drive busy: {0}
+	SR	Drajv je zauzet: {0}
+
+PLUGIN_AUDIOCD_UI_BUSY_RIP
+	EN	ripping
+	SR	rip
+
+PLUGIN_AUDIOCD_UI_BUSY_CACHE
+	EN	preparing for playback
+	SR	priprema za slušanje
+
+PLUGIN_AUDIOCD_UI_BUSY_LOOKUP
+	EN	reading disc data
+	SR	čitanje podataka sa diska
+
+PLUGIN_AUDIOCD_UI_BUSY_PROCESS
+	EN	a process is still stopping
+	SR	proces se još gasi
+
+PLUGIN_AUDIOCD_UI_MISSING_TOOLS
+	EN	Missing tools: {0}. Install the packages and reload this page.
+	SR	Nedostaju alati: {0}. Instalirajte pakete i ponovo učitajte stranicu.
+
+PLUGIN_AUDIOCD_UI_OFFLINE
+	EN	The server does not answer.
+	SR	Server ne odgovara.
+
+PLUGIN_AUDIOCD_UI_DISC_ID
+	EN	Disc ID
+	SR	ID diska
+
+PLUGIN_AUDIOCD_ERR_BAD_ARGS
+	EN	Invalid value{0}.
+	SR	Neispravna vrednost{0}.
+
+PLUGIN_AUDIOCD_ERR_BAD_INDEX
+	EN	No such release.
+	SR	Nema takvog izdanja.
+
+PLUGIN_AUDIOCD_ERR_BAD_TRACK
+	EN	No such track on this disc.
+	SR	Nema takve pesme na disku.
+
+PLUGIN_AUDIOCD_ERR_BUSY
+	EN	Already in progress.
+	SR	Već je u toku.
+
+PLUGIN_AUDIOCD_ERR_BUSY_DISC
+	EN	This disc is already being ripped.
+	SR	Ovaj disk se već ripuje.
+
+PLUGIN_AUDIOCD_ERR_CACHE_FAILED
+	EN	Could not prepare the track for playback.
+	SR	Pesma nije mogla da se pripremi za slušanje.
+
+PLUGIN_AUDIOCD_ERR_DRIVE_BUSY
+	EN	The drive is busy, try again in a moment.
+	SR	Drajv je zauzet, pokušajte za trenutak.
+
+PLUGIN_AUDIOCD_ERR_EJECT
+	EN	Could not eject the disc.
+	SR	Disk nije mogao da se izbaci.
+
+PLUGIN_AUDIOCD_ERR_EJECT_PENDING
+	EN	The disc is being ejected, wait a moment.
+	SR	Disk se izbacuje, sačekajte trenutak.
+
+PLUGIN_AUDIOCD_ERR_FAILED
+	EN	The command failed.
+	SR	Komanda nije uspela.
+
+PLUGIN_AUDIOCD_ERR_MISSING_TOOLS
+	EN	Missing tools: {0}.
+	SR	Nedostaju alati: {0}.
+
+PLUGIN_AUDIOCD_ERR_MOVE_FAILED
+	EN	Could not move the album.
+	SR	Album nije mogao da se premesti.
+
+PLUGIN_AUDIOCD_ERR_COPY_FAILED
+	EN	Copying to the library failed; the album stays in the rips folder.
+	SR	Kopiranje u biblioteku nije uspelo; album ostaje u folderu sa ripovima.
+
+PLUGIN_AUDIOCD_ERR_VERIFY_FAILED
+	EN	The copy did not match the original; the album stays in the rips folder.
+	SR	Kopija se ne poklapa sa originalom; album ostaje u folderu sa ripovima.
+
+PLUGIN_AUDIOCD_ERR_MKDIR_FAILED
+	EN	Could not create the folder in the library.
+	SR	Folder u biblioteci nije mogao da se napravi.
+
+PLUGIN_AUDIOCD_ERR_NO_AUDIO
+	EN	The disc has no audio tracks.
+	SR	Disk nema audio pesama.
+
+PLUGIN_AUDIOCD_ERR_NO_DISC
+	EN	No disc in the drive.
+	SR	Nema diska u drajvu.
+
+PLUGIN_AUDIOCD_ERR_NO_DEVICE
+	EN	The CD device was not found.
+	SR	CD uređaj nije pronađen.
+
+PLUGIN_AUDIOCD_ERR_NO_PLAYER
+	EN	Pick a player first.
+	SR	Prvo izaberite plejer.
+
+PLUGIN_AUDIOCD_ERR_NO_SPACE
+	EN	Not enough free space: {0} needed, {1} free.
+	SR	Nema dovoljno slobodnog prostora: potrebno {0}, slobodno {1}.
+
+PLUGIN_AUDIOCD_ERR_NOT_AVAILABLE
+	EN	This feature is not available.
+	SR	Ova mogućnost nije dostupna.
+
+PLUGIN_AUDIOCD_ERR_NOT_FOUND
+	EN	Not found.
+	SR	Nije pronađeno.
+
+PLUGIN_AUDIOCD_ERR_PLAY_FAILED
+	EN	Playback could not be started.
+	SR	Slušanje nije moglo da se pokrene.
+
+PLUGIN_AUDIOCD_ERR_RIPS_DIR
+	EN	Cannot use the rips folder.
+	SR	Folder za ripove ne može da se koristi.
+
+PLUGIN_AUDIOCD_ERR_RIP_FAILED
+	EN	Ripping could not be started.
+	SR	Rip nije mogao da se pokrene.
+
+PLUGIN_AUDIOCD_ERR_SAVE_FAILED
+	EN	Saving failed.
+	SR	Čuvanje nije uspelo.
+
+PLUGIN_AUDIOCD_ERR_STOPPED
+	EN	The plugin is shutting down.
+	SR	Plugin se gasi.
+
+PLUGIN_AUDIOCD_ERR_EXISTS
+	EN	The destination already exists; nothing was changed.
+	SR	Odredište već postoji; ništa nije menjano.
+
+PLUGIN_AUDIOCD_ERR_OUTSIDE_LIBRARY
+	EN	The library folder must be inside a music folder of the server.
+	SR	Folder biblioteke mora biti unutar muzičkog foldera servera.
+
+PLUGIN_AUDIOCD_ERR_OUTSIDE_RIPS
+	EN	This album is not in the rips folder.
+	SR	Ovaj album nije u folderu sa ripovima.
+
+PLUGIN_AUDIOCD_ERR_TIMEOUT
+	EN	The move took too long and was stopped.
+	SR	Premeštanje je trajalo predugo i prekinuto je.
+
+PLUGIN_AUDIOCD_ERR_PERMISSION
+	EN	No permission to read the CD drive. The server user must be in the "cdrom" group.
+	SR	Nema dozvole za čitanje CD drajva. Korisnik servera mora biti u grupi "cdrom".
+
+PLUGIN_AUDIOCD_ERR_IO
+	EN	The drive reported an error.
+	SR	Drajv je prijavio grešku.
+
+PLUGIN_AUDIOCD_ERR_UNKNOWN
+	EN	Error: {0}
+	SR	Greška: {0}
+
+PLUGIN_AUDIOCD_ERR_WARN_SOURCE_NOT_REMOVED
+	EN	The album was copied, but the original could not be deleted from the rips folder.
+	SR	Album je kopiran, ali original nije mogao da se obriše iz foldera sa ripovima.
+
+PLUGIN_AUDIOCD_SET_DEVICE
+	EN	CD device
+	SR	CD uređaj
+
+PLUGIN_AUDIOCD_SET_DEVICE_DESC
+	EN	Device node of the optical drive.
+	SR	Uređaj optičkog drajva.
+
+PLUGIN_AUDIOCD_SET_RIPS_DIR
+	EN	Rips folder
+	SR	Folder za ripove
+
+PLUGIN_AUDIOCD_SET_RIPS_DIR_DESC
+	EN	Where finished rips go. Empty uses the system default.
+	SR	Gde idu gotovi ripovi. Prazno koristi podrazumevani folder sistema.
+
+PLUGIN_AUDIOCD_SET_LIBRARY_DIR
+	EN	Library folder
+	SR	Folder biblioteke
+
+PLUGIN_AUDIOCD_SET_LIBRARY_DIR_DESC
+	EN	Target of "Move to library"; must be inside a music folder of the server. Empty uses the first music folder.
+	SR	Odredište za „Premesti u biblioteku”; mora biti unutar muzičkog foldera servera. Prazno koristi prvi muzički folder.
+
+PLUGIN_AUDIOCD_SET_PROFILE
+	EN	Default quality profile
+	SR	Podrazumevani profil kvaliteta
+
+PLUGIN_AUDIOCD_SET_QUIET_DRIVE
+	EN	Quiet drive
+	SR	Tiši drajv
+
+PLUGIN_AUDIOCD_SET_QUIET_DRIVE_DESC
+	EN	Limit the reading speed while ripping.
+	SR	Ograniči brzinu čitanja pri ripu.
+
+PLUGIN_AUDIOCD_SET_QUIET_SPEED
+	EN	Quiet drive speed
+	SR	Brzina tišeg drajva
+
+PLUGIN_AUDIOCD_SET_QUIET_SPEED_DESC
+	EN	Reading speed multiplier, 1 to 52.
+	SR	Množilac brzine čitanja, od 1 do 52.
+
+PLUGIN_AUDIOCD_SET_DRIVE_OFFSET
+	EN	Drive offset
+	SR	Ofset drajva
+
+PLUGIN_AUDIOCD_SET_DRIVE_OFFSET_DESC
+	EN	Read offset in samples (see the AccurateRip drive list). Empty means 0.
+	SR	Ofset čitanja u semplovima (vidi AccurateRip listu drajvova). Prazno znači 0.
+
+PLUGIN_AUDIOCD_SET_AUTO_LOAD
+	EN	Read the disc automatically
+	SR	Automatski očitaj disk
+
+PLUGIN_AUDIOCD_SET_AUTO_RIP
+	EN	Rip automatically
+	SR	Automatski rip
+
+PLUGIN_AUDIOCD_SET_AUTO_RIP_DESC
+	EN	Start a rip as soon as a disc is read.
+	SR	Pokreni rip čim se disk očita.
+
+PLUGIN_AUDIOCD_SET_AUTO_RIP_PROFILE
+	EN	Automatic rip profile
+	SR	Profil automatskog ripa
+
+PLUGIN_AUDIOCD_SET_EJECT_AFTER
+	EN	Eject after ripping
+	SR	Izbaci disk posle ripa
+
+PLUGIN_AUDIOCD_SET_NOTIFY
+	EN	Notifications
+	SR	Obaveštenja
+
+PLUGIN_AUDIOCD_SET_NOTIFY_DESC
+	EN	Show a message on the players when a rip ends.
+	SR	Prikaži poruku na plejerima kad se rip završi.
+
+PLUGIN_AUDIOCD_SET_POLLING
+	EN	Check the drive periodically
+	SR	Povremeno proveri drajv
+
+PLUGIN_AUDIOCD_SET_POLLING_DESC
+	EN	Fallback when the udev rule is not installed.
+	SR	Rezerva kad udev pravilo nije instalirano.
+
+PLUGIN_AUDIOCD_SET_SECURE_CACHE
+	EN	Secure caching for playback
+	SR	Sigurno keširanje za slušanje
+
+PLUGIN_AUDIOCD_SET_SECURE_CACHE_DESC
+	EN	Slower, but re-reads damaged sectors more carefully.
+	SR	Sporije, ali pažljivije ponovo čita oštećene sektore.
+
+PLUGIN_AUDIOCD_SET_ERR_DEVICE
+	EN	CD device: an absolute path such as /dev/cdrom is required
+	SR	CD uređaj: potrebna je apsolutna putanja, npr. /dev/cdrom
+
+PLUGIN_AUDIOCD_SET_ERR_RIPS_DIR
+	EN	Rips folder: an absolute path that exists or can be created is required
+	SR	Folder za ripove: potrebna je apsolutna putanja koja postoji ili može da se napravi
+
+PLUGIN_AUDIOCD_SET_ERR_LIBRARY_DIR
+	EN	Library folder: an absolute path inside a music folder of the server, existing or creatable, is required
+	SR	Folder biblioteke: potrebna je apsolutna putanja unutar muzičkog foldera servera, koja postoji ili može da se napravi
+
+PLUGIN_AUDIOCD_SET_ERR_PROFILE
+	EN	Quality profile: unknown value
+	SR	Profil kvaliteta: nepoznata vrednost
+
+PLUGIN_AUDIOCD_SET_ERR_QUIET_SPEED
+	EN	Quiet drive speed: a whole number from 1 to 52 is required
+	SR	Brzina tišeg drajva: potreban je ceo broj od 1 do 52
+
+PLUGIN_AUDIOCD_SET_ERR_DRIVE_OFFSET
+	EN	Drive offset: a whole number from -3000 to 3000 is required
+	SR	Ofset drajva: potreban je ceo broj od -3000 do 3000
+
+PLUGIN_AUDIOCD_SET_SAVED
+	EN	Settings saved.
+	SR	Podešavanja su sačuvana.

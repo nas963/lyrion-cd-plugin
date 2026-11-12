@@ -1,0 +1,67 @@
+[% PROCESS settings/header.html %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_DEVICE" desc="PLUGIN_AUDIOCD_SET_DEVICE_DESC" %]
+		<input type="text" class="stdedit" name="pref_device" value="[% audiocd.device | html %]" size="30">
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_RIPS_DIR" desc="PLUGIN_AUDIOCD_SET_RIPS_DIR_DESC" %]
+		<input type="text" class="stdedit" name="pref_ripsDir" value="[% audiocd.ripsDir | html %]" size="50" placeholder="[% audiocdRipsDefault | html %]">
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_LIBRARY_DIR" desc="PLUGIN_AUDIOCD_SET_LIBRARY_DIR_DESC" %]
+		<input type="text" class="stdedit" name="pref_libraryDir" value="[% audiocd.libraryDir | html %]" size="50">
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_PROFILE" desc="" %]
+		<select class="stdedit" name="pref_profile">
+			[% FOREACH p IN audiocdProfiles %]
+			<option value="[% p %]" [% IF audiocd.profile == p %]selected[% END %]>[% ('PLUGIN_AUDIOCD_UI_PROFILE_' _ p.upper) | string %]</option>
+			[% END %]
+		</select>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_QUIET_DRIVE" desc="PLUGIN_AUDIOCD_SET_QUIET_DRIVE_DESC" %]
+		<input type="checkbox" name="pref_quietDrive" value="1" [% IF audiocd.quietDrive %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_QUIET_SPEED" desc="PLUGIN_AUDIOCD_SET_QUIET_SPEED_DESC" %]
+		<input type="number" class="stdedit" name="pref_quietSpeed" value="[% audiocd.quietSpeed | html %]" min="1" max="52" step="1">
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_DRIVE_OFFSET" desc="PLUGIN_AUDIOCD_SET_DRIVE_OFFSET_DESC" %]
+		<input type="text" class="stdedit" name="pref_driveOffset" value="[% audiocd.driveOffset | html %]" size="8">
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_LOAD" desc="" %]
+		<input type="checkbox" name="pref_autoLoad" value="1" [% IF audiocd.autoLoad %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_RIP" desc="PLUGIN_AUDIOCD_SET_AUTO_RIP_DESC" %]
+		<input type="checkbox" name="pref_autoRip" value="1" [% IF audiocd.autoRip %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_RIP_PROFILE" desc="" %]
+		<select class="stdedit" name="pref_autoRipProfile">
+			[% FOREACH p IN audiocdProfiles %]
+			<option value="[% p %]" [% IF audiocd.autoRipProfile == p %]selected[% END %]>[% ('PLUGIN_AUDIOCD_UI_PROFILE_' _ p.upper) | string %]</option>
+			[% END %]
+		</select>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_EJECT_AFTER" desc="" %]
+		<input type="checkbox" name="pref_ejectAfterRip" value="1" [% IF audiocd.ejectAfterRip %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_NOTIFY" desc="PLUGIN_AUDIOCD_SET_NOTIFY_DESC" %]
+		<input type="checkbox" name="pref_notify" value="1" [% IF audiocd.notify %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_POLLING" desc="PLUGIN_AUDIOCD_SET_POLLING_DESC" %]
+		<input type="checkbox" name="pref_polling" value="1" [% IF audiocd.polling %]checked[% END %]>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_SECURE_CACHE" desc="PLUGIN_AUDIOCD_SET_SECURE_CACHE_DESC" %]
+		<input type="checkbox" name="pref_secureCache" value="1" [% IF audiocd.secureCache %]checked[% END %]>
+	[% END %]
+
+[% PROCESS settings/footer.html %]

@@ -22,7 +22,7 @@ sub boot {
 	return q{BEGIN { require constant; constant->import({ SCANNER => 0, RESIZER => 0, ISWINDOWS => 0, ISMAC => 0, TRANSCODING => 1, PERFMON => 0, DEBUGLOG => 1, INFOLOG => 1, STATISTICS => 1, SB1SLIMP3SYNC => 0, WEBUI => 1, NOMYSB => 1, LOCALFILE => 0, NOBROWSECACHE => 0, SLIM_SERVICE => 0, NOUPNP => 0, ISACTIVEPERL => 0, HAS_AIO => 0 }) } require Slim::Utils::OSDetect; Slim::Utils::OSDetect::init(); } . $code;
 }
 
-sub _q { my ($s) = @_; $s =~ s/'/'\''/g; return "'$s'" }
+sub _q { my ($s) = @_; $s =~ s/'/'\\''/g; return "'$s'" }    # ' -> '\'' (u zameni \\ je jedna kosa crta)
 
 # run($code, @args) -> izlaz (stdout+stderr) perl procesa sa LMS putanjama i boot kodom.
 sub run {

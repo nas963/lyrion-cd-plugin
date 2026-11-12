@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="[% audiocdLang | html %]">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>[% "PLUGIN_AUDIOCD" | string %]</title>
+<link rel="icon" href="[% webroot %]plugins/AudioCD/cd-generic.png" type="image/png">
+<link rel="stylesheet" href="[% webroot %]plugins/AudioCD/audiocd.css?v=[% audiocdStamp %]">
+</head>
+<body>
+<script type="application/json" id="audiocd-data">[% audiocdData %]</script>
+<main id="app" class="wrap">
+  <header class="top">
+    <h1 id="h-title"></h1>
+    <a id="settings-link" class="link" href="[% webroot %]plugins/AudioCD/settings/basic.html" target="_blank" rel="noopener"></a>
+  </header>
+
+  <div id="banners" aria-live="polite"></div>
+  <div id="msg" class="msg" role="status" hidden></div>
+
+  <section id="disc" class="card" aria-labelledby="disc-heading">
+    <div class="disc-main">
+      <img id="cover" class="cover" alt="" width="240" height="240" src="[% webroot %]plugins/AudioCD/cd-generic.png">
+      <div class="disc-info">
+        <h2 id="disc-heading" class="album"></h2>
+        <p id="disc-artist" class="artist"></p>
+        <p id="disc-meta" class="muted"></p>
+        <p id="disc-state" class="muted"></p>
+        <p id="fuzzy-hint" class="hint" hidden></p>
+        <div id="release-box" class="field" hidden>
+          <label for="release" id="release-label"></label>
+          <select id="release"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <div class="player-pick">
+        <label for="player" id="player-label"></label>
+        <select id="player"></select>
+      </div>
+      <div class="buttons">
+        <button type="button" id="btn-play" class="primary"></button>
+        <button type="button" id="btn-rip"></button>
+        <button type="button" id="btn-edit"></button>
+        <button type="button" id="btn-eject"></button>
+        <button type="button" id="btn-load"></button>
+      </div>
+    </div>
+  </section>
+
+  <section id="progress" class="card" hidden>
+    <div id="cache-box" hidden>
+      <h3 id="cache-title"></h3>
+      <progress id="cache-bar" max="100" value="0"></progress>
+      <p id="cache-text" class="muted"></p>
+    </div>
+    <div id="rip-box" hidden>
+      <h3 id="rip-title"></h3>
+      <p id="rip-name" class="muted"></p>
+      <progress id="rip-bar" max="100" value="0"></progress>
+      <p id="rip-text" class="muted"></p>
+      <progress id="rip-track-bar" class="thin" max="100" value="0"></progress>
+      <button type="button" id="rip-cancel" class="small"></button>
+    </div>
+    <div id="queue-box" hidden>
+      <h3 id="queue-title"></h3>
+      <ul id="queue" class="plain"></ul>
+    </div>
+  </section>
+
+  <section id="tracks-card" class="card" hidden>
+    <h3 id="tracks-title"></h3>
+    <ol id="tracks" class="tracks"></ol>
+  </section>
+
+  <section class="card" aria-labelledby="hist-title">
+    <h3 id="hist-title"></h3>
+    <ul id="history" class="plain"></ul>
+  </section>
+</main>
+
+<dialog id="dlg-rip">
+  <form method="dialog" id="form-rip">
+    <h3 id="rip-dlg-title"></h3>
+    <div class="field">
+      <label for="rip-dir" id="rip-dir-label"></label>
+      <input type="text" id="rip-dir" autocomplete="off" spellcheck="false">
+      <small id="rip-dir-hint" class="muted"></small>
+    </div>
+    <div class="field">
+      <label for="rip-profile" id="rip-profile-label"></label>
+      <select id="rip-profile">
+        <option value="fast"></option>
+        <option value="balanced"></option>
+        <option value="secure"></option>
+      </select>
+    </div>
+    <div class="field check">
+      <input type="checkbox" id="rip-eject">
+      <label for="rip-eject" id="rip-eject-label"></label>
+    </div>
+    <div class="dlg-buttons">
+      <button type="button" id="rip-dlg-cancel"></button>
+      <button type="submit" id="rip-dlg-go" class="primary"></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-edit">
+  <form method="dialog" id="form-edit">
+    <h3 id="edit-title"></h3>
+    <div class="field"><label for="ed-artist" id="ed-artist-label"></label><input type="text" id="ed-artist" autocomplete="off"></div>
+    <div class="field"><label for="ed-album" id="ed-album-label"></label><input type="text" id="ed-album" autocomplete="off"></div>
+    <div class="field"><label for="ed-year" id="ed-year-label"></label><input type="text" id="ed-year" inputmode="numeric" maxlength="4" autocomplete="off"></div>
+    <div id="ed-tracks" class="ed-tracks"></div>
+    <div class="dlg-buttons">
+      <button type="button" id="edit-cancel"></button>
+      <button type="submit" id="edit-save" class="primary"></button>
+    </div>
+  </form>
+</dialog>
+
+<script src="[% webroot %]plugins/AudioCD/audiocd.js?v=[% audiocdStamp %]"></script>
+</body>
+</html>
