@@ -5,3 +5,7 @@ PLUGIN_AUDIOCD
 PLUGIN_AUDIOCD_DESC
 	EN	Play and rip audio CDs from the server's optical drive.
 	SR	Slušanje i rip audio CD-ova iz optičkog drajva servera.
+
+PLUGIN_AUDIOCD_TRACK_NOT_READY
+	EN	The CD track is not ready yet.
+	SR	Pesma sa CD-a još nije spremna.
