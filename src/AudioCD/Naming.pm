@@ -41,19 +41,29 @@ sub _trim {
     return $s;
 }
 
-# Najvise MAX_BYTES bajtova UTF-8, sece se na granici znaka.
+# Najvise $limit bajtova UTF-8 (podrazumevano MAX_BYTES), sece se na granici znaka.
 sub _cut {
-    my ($s) = @_;
-    return $s if length(Encode::encode('UTF-8', $s)) <= MAX_BYTES;
+    my ($s, $limit) = @_;
+    $limit = MAX_BYTES unless defined $limit;
+    return $s if _blen($s) <= $limit;
     my $out = '';
     my $len = 0;
     for my $ch (split //, $s) {
-        my $l = length(Encode::encode('UTF-8', $ch));
-        last if $len + $l > MAX_BYTES;
+        my $l = _blen($ch);
+        last if $len + $l > $limit;
         $out .= $ch;
         $len += $l;
     }
     return $out;
+}
+
+sub _blen { return length(Encode::encode('UTF-8', $_[0])) }
+
+# Seci na limit i ponovo skida tacke/razmake sa kraja; prazno -> Unknown.
+sub _fit {
+    my ($s, $limit) = @_;
+    $s = _trim(_cut($s, $limit));
+    return $s eq '' ? 'Unknown' : $s;
 }
 
 sub album_dir {
@@ -62,15 +72,27 @@ sub album_dir {
     return join('/', $root, sanitize($artist), sanitize($disc->{album}));
 }
 
+# Ceo naziv fajla (sa "NN - " i ".flac") staje u MAX_BYTES bajtova.
 sub track_file {
     my ($disc, $track) = @_;
-    my $nn = sprintf('%02d', $track->{n} || 0);
+    my $nn  = sprintf('%02d - ', $track->{n} || 0);
+    my $ext = '.flac';
     my $title = sanitize($track->{title});
     if ($disc->{compilation}) {
         my $artist = defined $track->{artist} && length $track->{artist} ? $track->{artist} : $disc->{artist};
-        return "$nn - " . sanitize($artist) . " - $title.flac";
+        $artist = sanitize($artist);
+        my $avail = MAX_BYTES - _blen($nn) - _blen($ext) - 3;    # 3 = " - "
+        if (_blen($artist) + _blen($title) > $avail) {
+            my $alimit = int($avail / 2);
+            my $room   = $avail - _blen($title);
+            $alimit = $room if $room > $alimit;
+            $artist = _fit($artist, $alimit);
+            $title  = _fit($title, $avail - _blen($artist));
+        }
+        return $nn . "$artist - $title" . $ext;
     }
-    return "$nn - $title.flac";
+    $title = _fit($title, MAX_BYTES - _blen($nn) - _blen($ext));
+    return $nn . $title . $ext;
 }
 
 sub disc_subdir {
@@ -79,12 +101,19 @@ sub disc_subdir {
     return 'Disc ' . ($disc->{disc_number} || 1);
 }
 
+# Dodaje " (N)" na poslednju komponentu; komponenta ostaje u MAX_BYTES bajtova.
 sub unique_dir {
     my ($path, $exists_cb) = @_;
     return $path unless $exists_cb->($path);
+    my ($dir, $comp) = $path =~ m{\A(.*/)?([^/]*)\z}s;
+    $dir = '' unless defined $dir;
     my $i = 2;
-    $i++ while $exists_cb->("$path ($i)");
-    return "$path ($i)";
+    while (1) {
+        my $suffix = " ($i)";
+        my $cand = $dir . _fit($comp, MAX_BYTES - _blen($suffix)) . $suffix;
+        return $cand unless $exists_cb->($cand);
+        $i++;
+    }
 }
 
 sub fs_bytes {

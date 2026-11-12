@@ -56,4 +56,21 @@ is($N->can('unique_dir')->('/r/A/B', sub { 0 }), '/r/A/B', 'unique_dir slobodan'
 
 is($N->can('fs_bytes')->('Č'), "\xc4\x8c", 'fs_bytes');
 
+my $cjk = "\x{65e5}" x 120;
+my $valid = sub { eval { Encode::decode('UTF-8', Encode::encode('UTF-8', $_[0]), Encode::FB_CROAK); 1 } };
+for my $comp (0, 1) {
+    my $f = $N->can('track_file')->({ artist => $cjk, compilation => $comp }, { n => 3, title => $cjk, artist => $cjk });
+    cmp_ok(length(Encode::encode('UTF-8', $f)), '<=', 200, "track_file cela duzina <= 200 (compilation=$comp)");
+    ok($valid->($f), "track_file validan UTF-8 (compilation=$comp)");
+    like($f, qr/\.flac\z/, "ekstenzija ostaje (compilation=$comp)");
+}
+my $cf = $N->can('track_file')->({ compilation => 1 }, { n => 3, title => $cjk, artist => 'X' });
+like($cf, qr/\A03 - X - \x{65e5}+\.flac\z/, 'kratak izvodjac se ne seca');
+my $long = '/r/A/' . ("\x{65e5}" x 66);    # 198 bajtova
+my $u = $N->can('unique_dir')->($long, sub { $_[0] eq $long });
+my ($ucomp) = $u =~ m{([^/]+)\z};
+cmp_ok(length(Encode::encode('UTF-8', $ucomp)), '<=', 200, 'unique_dir komponenta <= 200');
+ok($valid->($ucomp), 'unique_dir validan UTF-8');
+like($u, qr/ \(2\)\z/, 'unique_dir sufiks');
+
 done_testing;
