@@ -41,9 +41,11 @@ use Slim::Music::Info;
 use Slim::Schema::RemoteTrack;
 use Slim::Utils::Log;
 use Slim::Utils::Timers;
+use Slim::Player::Song;
 
-use constant WAIT_MAX  => 120;    # sekundi cekanja da pesma bude izvucena
-use constant WAIT_STEP => 0.5;
+use Plugins::AudioCD::Cache;
+
+use constant WAIT_STEP => 0.5;    # sekundi izmedju provera da li je pesma izvucena
 
 my $log = logger('plugin.audiocd');
 my $CACHE;
@@ -55,9 +57,9 @@ sub url_for { my ($class, $discid, $n) = @_; return "audiocd://$discid/$n" }
 # parse_url($url) -> ($discid, $n) | ()
 sub parse_url {
 	my ($class, $url) = @_;
-	return () unless defined $url && $url =~ m{^audiocd://([A-Za-z0-9._-]+)/(\d+)\z};
+	return () unless defined $url && $url =~ m{^audiocd://([^/]+)/(\d+)\z};
 	my ($discid, $n) = ($1, $2 + 0);
-	return () if $discid =~ /^\.+\z/;
+	return () unless Plugins::AudioCD::Cache::valid_discid($discid);
 	return ($discid, $n);
 }
 
@@ -99,7 +101,7 @@ sub getMetadataFor {
 	my $cover = $class->cover_url($discid);
 	return {
 		title    => $t->{title},
-		artist   => $t->{artist} // $d->{artist},
+		artist   => Plugins::AudioCD::Cache::track_artist($t, $d),
 		album    => $d->{album},
 		tracknum => $n,
 		duration => $t->{length},
@@ -123,7 +125,8 @@ sub _fill_track {
 	if ($m) {
 		my ($d, $t) = ($m->{disc}, $m->{track});
 		$attr->{TITLE}    = $t->{title} if defined $t->{title};
-		$attr->{ARTIST}   = $t->{artist} // $d->{artist} if defined($t->{artist} // $d->{artist});
+		my $artist = Plugins::AudioCD::Cache::track_artist($t, $d);
+		$attr->{ARTIST}   = $artist if defined $artist;
 		$attr->{ALBUM}    = $d->{album} if defined $d->{album};
 		$attr->{TRACKNUM} = $n;
 	}
@@ -132,7 +135,22 @@ sub _fill_track {
 	return;
 }
 
-# Ceka da pesma bude izvucena (najvise WAIT_MAX s), pa pusta; pesma ide na pocetak reda kesa.
+# Da li LMS jos ceka bas ovu pesmu: status READY i prva je u redu StreamingController-a
+# (_getNextTrack je stavlja na pocetak songqueue pre getNextSong; preskakanje stavlja novu ispred).
+sub _song_active {
+	my ($song) = @_;
+	my $ok = eval {
+		return 0 unless $song->status == Slim::Player::Song::STATUS_READY();
+		my $owner = $song->owner;
+		return 1 unless $owner && $owner->can('streamingSong');
+		my $s = $owner->streamingSong;
+		return defined $s && $s == $song ? 1 : 0;
+	};
+	return $ok // 1;
+}
+
+# Ceka da pesma bude izvucena, pa pusta; pesma ide na pocetak reda kesa. Odluku donosi
+# Cache::Waiter (jedan cekac po plejeru, rok 120 s, produzava se dok .part raste, najvise 600 s).
 sub getNextTrack {
 	my ($class, $song, $successCb, $errorCb) = @_;
 	my $track = $song->currentTrack;
@@ -147,35 +165,23 @@ sub getNextTrack {
 	return $fail->('neispravan URL') unless defined $n;
 	return $fail->('kes nije podesen') unless $CACHE;
 
-	my $deadline = Time::HiRes::time() + WAIT_MAX;
+	my $key = eval { $song->master->id } // '';
+	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n);
 	my $check;
 	$check = sub {
-		if (my $path = $CACHE->path($discid, $n)) {
-			undef $check;
-			eval { $class->_fill_track($track, $path, $discid, $n); 1 }
+		my ($what, $arg) = $w->poll(_song_active($song));
+		if ($what eq 'wait') {
+			Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + WAIT_STEP, $check);
+			return;
+		}
+		undef $check;
+		if ($what eq 'ready') {
+			eval { $class->_fill_track($track, $arg, $discid, $n); 1 }
 				or $log->warn("$url: citanje tagova: $@");
 			return $successCb->();
 		}
-		my $cid = $CACHE->discid;
-		if (!defined $cid || $cid ne $discid) {
-			undef $check;
-			return $fail->('disk nije u kesu');
-		}
-		my $st = $CACHE->status;
-		if (grep { $_ == $n } @{ $st->{failed} || [] }) {
-			undef $check;
-			return $fail->('izvlacenje pesme nije uspelo');
-		}
-		if (!$CACHE->busy) {
-			undef $check;
-			return $fail->('kes ne izvlaci pesme');
-		}
-		if (Time::HiRes::time() >= $deadline) {
-			undef $check;
-			return $fail->('isteklo cekanje (' . WAIT_MAX . ' s)');
-		}
-		$CACHE->prioritize($n);
-		Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + WAIT_STEP, $check);
+		return $fail->($arg) if $what eq 'fail';
+		main::INFOLOG && $log->is_info && $log->info("$url: cekanje prekinuto (preskocena pesma)");
 		return;
 	};
 	$check->();

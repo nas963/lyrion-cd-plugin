@@ -11,10 +11,26 @@ use warnings;
 use utf8;
 
 use File::Path ();
+use Time::HiRes ();
 
 use Plugins::AudioCD::DiscId;
 use Plugins::AudioCD::Jobs;
 use Plugins::AudioCD::Tools;
+
+use constant WAIT_MAX => 120;    # sekundi cekanja na pesmu bez napretka
+use constant HARD_MAX => 600;    # apsolutna granica cekanja (i dok .part raste)
+
+# MusicBrainz disc ID: 28 znakova base64 (+/= -> ._-), uvek se zavrsava sa '-'.
+sub valid_discid {
+	my ($id) = @_;
+	return defined $id && $id =~ /^[A-Za-z0-9._-]{27}-\z/ ? 1 : 0;
+}
+
+# Izvodjac pesme, a ako ga nema (ili je prazan) izvodjac diska.
+sub track_artist {
+	my ($t, $disc) = @_;
+	return (defined $t->{artist} && length $t->{artist}) ? $t->{artist} : $disc->{artist};
+}
 
 # ---------- folder kesa ----------
 
@@ -33,6 +49,7 @@ sub cache_dir {
 
 sub new {
 	my ($class, %a) = @_;
+	die "Cache->new: dir mora biti apsolutna putanja\n" unless defined $a{dir} && $a{dir} =~ m{^/.};
 	return bless {
 		spawn     => $a{spawn} || sub { Plugins::AudioCD::Jobs->spawn(@_) },
 		dir       => $a{dir},
@@ -48,6 +65,7 @@ sub new {
 		done      => {},
 		failed    => {},
 		current   => undef,
+		waiters   => {},    # kljuc (plejer) => generacija poslednjeg cekaca
 	}, $class;
 }
 
@@ -65,7 +83,7 @@ sub _file { my ($self, $n) = @_; return sprintf('%s/%02d.flac', $self->_disc_dir
 sub _remove_others {
 	my ($self, $keep) = @_;
 	opendir(my $dh, $self->{dir}) or return;
-	my @kids = grep { $_ ne '.' && $_ ne '..' && $_ ne $keep } readdir $dh;
+	my @kids = grep { valid_discid($_) && $_ ne $keep } readdir $dh;
 	closedir $dh;
 	for my $k (@kids) {
 		my $p = "$self->{dir}/$k";
@@ -93,7 +111,7 @@ sub _scan_existing {
 sub start {
 	my ($self, $disc, $toc, $first) = @_;
 	my $id = ref $disc eq 'HASH' ? $disc->{discid} : undef;
-	unless (defined $id && $id =~ /^[A-Za-z0-9._-]+\z/ && $id !~ /^\.+\z/ && ref $toc eq 'HASH') {
+	unless (valid_discid($id) && ref $toc eq 'HASH') {
 		warn "Cache start: neispravan disk ili TOC\n";
 		return 0;
 	}
@@ -190,6 +208,39 @@ sub status {
 	};
 }
 
+# ---------- cekanje na pesmu (za ProtocolHandler::getNextTrack) ----------
+
+# waiter(key => $player_id, discid => ..., n => ...[, now => sub, wait_max, hard_max]) -> $w
+# Po kljucu vazi samo poslednji cekac: noviji gasi starije (preskakanje pesama).
+sub waiter {
+	my ($self, %a) = @_;
+	my $now = $a{now} || \&Time::HiRes::time;
+	my $t0  = $now->();
+	my $wm  = $a{wait_max} // WAIT_MAX;
+	my $hm  = $a{hard_max} // HARD_MAX;
+	my $key = defined $a{key} ? $a{key} : '';
+	return bless {
+		cache    => $self,
+		key      => $key,
+		gen      => ++$self->{waiters}{$key},
+		discid   => $a{discid},
+		n        => $a{n},
+		now      => $now,
+		wait_max => $wm,
+		deadline => $t0 + $wm,
+		hard     => $t0 + $hm,
+		size     => -1,
+	}, 'Plugins::AudioCD::Cache::Waiter';
+}
+
+# Velicina .part tekuce pesme $n (undef ako se $n trenutno ne izvlaci).
+sub part_size {
+	my ($self, $n) = @_;
+	my $c = $self->{current};
+	return undef unless $c && defined $n && $c->{n} == $n;
+	return -s $c->{part} || 0;
+}
+
 # ---------- izvlacenje ----------
 
 sub _clean { my ($v) = @_; $v =~ s/[\r\n]+/ /g; return $v }
@@ -201,7 +252,7 @@ sub argv_for {
 	$t ||= {};
 	my @kv = (
 		TITLE                      => $t->{title},
-		ARTIST                     => $t->{artist} // $disc->{artist},
+		ARTIST                     => track_artist($t, $disc),
 		ALBUM                      => $disc->{album},
 		TRACKNUMBER                => $n,
 		MUSICBRAINZ_TRACKID        => $t->{recording_id},
@@ -282,6 +333,35 @@ sub _on_exit {
 	$self->_notify;
 	$self->_pump;
 	return;
+}
+
+package Plugins::AudioCD::Cache::Waiter;
+
+use strict;
+use warnings;
+
+# poll($active) -> ('stop') | ('ready', $path) | ('fail', $razlog) | ('wait')
+#   stop: cekac je zastareo (noviji za isti plejer, ili LMS vise ne ceka ovu pesmu); bez callback-a
+#   wait: pesma je pomerena na pocetak reda; rok se produzava dok .part raste (najvise hard_max)
+sub poll {
+	my ($self, $active) = @_;
+	my $c = $self->{cache};
+	return ('stop') if !$active || ($c->{waiters}{ $self->{key} } // 0) != $self->{gen};
+	my ($discid, $n) = @$self{qw(discid n)};
+	if (defined(my $p = $c->path($discid, $n))) { return ('ready', $p) }
+	return ('fail', 'disk nije u kesu') unless defined $c->discid && defined $discid && $c->discid eq $discid;
+	return ('fail', 'izvlacenje pesme nije uspelo') if $c->{failed}{$n};
+	return ('fail', 'kes ne izvlaci pesme') unless $c->busy;
+	my $now  = $self->{now}->();
+	my $size = $c->part_size($n);
+	if (defined $size && $size > $self->{size}) {
+		$self->{size}     = $size;
+		$self->{deadline} = $now + $self->{wait_max};
+		$self->{deadline} = $self->{hard} if $self->{deadline} > $self->{hard};
+	}
+	return ('fail', 'isteklo cekanje') if $now >= $self->{deadline};
+	$c->prioritize($n);
+	return ('wait');
 }
 
 1;

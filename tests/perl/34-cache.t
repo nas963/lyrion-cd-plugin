@@ -4,6 +4,7 @@ use utf8;
 use Test::More;
 use File::Temp ();
 use File::Path ();
+use File::Spec ();
 
 use lib 'lib';
 BEGIN { use_ok('Plugins::AudioCD::Cache') }
@@ -12,7 +13,7 @@ my $C = 'Plugins::AudioCD::Cache';
 
 binmode(Test::More->builder->$_, ':encoding(UTF-8)') for qw(output failure_output todo_output);
 
-my $root = File::Temp::tempdir('cache-XXXXXX', DIR => '.', CLEANUP => 1);
+my $root = File::Spec->rel2abs(File::Temp::tempdir('cache-XXXXXX', DIR => '.', CLEANUP => 1));
 my $n = 0;
 sub fresh_dir { my $d = "$root/c" . ++$n; File::Path::make_path($d); return $d }
 
@@ -185,15 +186,151 @@ sub mk {
     $c->start(mkdisc(), $toc, 1);
     finish($SPAWNS[0]);
     ok -d "$dir/$DISCID", 'folder diska postoji';
-    $c->start(mkdisc(discid => 'drugiDisk'), $toc, 1);
+    File::Path::make_path("$dir/nije-disk", "$dir/kratak-");
+    $c->start(mkdisc(discid => 'xBFBpdDGyUnu4ofAwN5ZrxozKwM-'), $toc, 1);
     ok !-e "$dir/$DISCID", 'start drugog diska brise keš prethodnog';
-    ok -d "$dir/drugiDisk", 'folder novog diska';
+    ok -d "$dir/nije-disk" && -d "$dir/kratak-", 'folderi koji nisu disc ID ostaju';
+    ok -d "$dir/xBFBpdDGyUnu4ofAwN5ZrxozKwM-", 'folder novog diska';
     is $c->path($DISCID, 1), undef, 'stari disk vise nije u kesu';
     $c->clear;
-    ok !-e "$dir/drugiDisk", 'clear brise folder diska';
+    ok !-e "$dir/xBFBpdDGyUnu4ofAwN5ZrxozKwM-", 'clear brise folder diska';
     ok !$c->busy, 'clear zaustavlja posao';
     is_deeply $c->status->{done}, [], 'clear prazni done';
     ok -d $dir, 'cache_dir ostaje';
+}
+
+# ---- new: dir mora biti apsolutna putanja ----
+for my $bad (undef, '', 'relativ/dir', '/') {
+    my $ok = eval { $C->new(spawn => $fake, dir => $bad, device => '/dev/sr0'); 1 };
+    ok !$ok && $@ =~ /apsolutna putanja/, 'new odbija dir ' . (defined $bad ? "'$bad'" : 'undef');
+}
+
+# ---- start odbija neispravan disc ID ----
+{
+    my $c = mk();
+    my @w;
+    { local $SIG{__WARN__} = sub { push @w, @_ }; ok !$c->start(mkdisc(discid => '../x'), $toc, 1), 'start odbija ../x' }
+    like "@w", qr/neispravan disk/, 'upozorenje za neispravan disk';
+    is scalar(@SPAWNS), 0, 'nista se ne pokrece';
+}
+
+# ---- prazan izvodjac pesme -> izvodjac diska ----
+{
+    my $c = mk();
+    my $d = mkdisc();
+    $d->{tracks}[0]{artist} = '';
+    $d->{tracks}[1]{artist} = 'Gost';
+    $c->start($d, $toc, 1);
+    like $SPAWNS[0]{cmd}, qr/'-T' 'ARTIST=Izvođač'/, 'prazan izvodjac pesme: izvodjac diska';
+    finish($SPAWNS[0]);
+    like $SPAWNS[1]{cmd}, qr/'-T' 'ARTIST=Gost'/, 'izvodjac pesme kad postoji';
+    $c->stop;
+    is $C->can('track_artist')->({ artist => '' }, { artist => 'D' }), 'D', 'track_artist: prazan -> disk';
+    is $C->can('track_artist')->({}, { artist => 'D' }), 'D', 'track_artist: nema -> disk';
+}
+
+# ---- ostaci u folderu diska (_scan_existing) ----
+{
+    my $dir = fresh_dir();
+    File::Path::make_path("$dir/$DISCID");
+    for my $f ('03.flac', '04.flac.part') { open my $fh, '>', "$dir/$DISCID/$f" or die; print {$fh} 'x'; close $fh }
+    my $c = mk(dir => $dir);
+    $c->start(mkdisc(), $toc, 1);
+    ok !-e "$dir/$DISCID/04.flac.part", 'stari .part obrisan';
+    is $c->ready(3), 1, 'postojeci 03.flac je gotov';
+    finish($SPAWNS[-1]) for 1 .. 3;
+    is_deeply [ order() ], [ 1, 2, 4, 5 ], 'postojeca pesma se ne izvlaci ponovo';
+}
+
+# ---- spawn koji pada ili ne vrati posao ----
+for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]) {
+    my ($name, $sp) = @$case;
+    my $c = $C->new(spawn => $sp, dir => fresh_dir(), device => '/dev/sr0', paranoia => 'p', flac => 'f');
+    my @w;
+    { local $SIG{__WARN__} = sub { push @w, @_ }; $c->start(mkdisc(), $toc, 1) }
+    is_deeply $c->status->{failed}, [ 1 .. 5 ], "spawn $name: sve pesme neuspele";
+    ok !$c->busy, "spawn $name: nije busy";
+    like "@w", ($name eq 'die' ? qr/boom/ : qr/nema posla/), "spawn $name: upozorenje";
+}
+
+# ---- start istog diska tokom izvlacenja ----
+{
+    my $c = mk();
+    $c->start(mkdisc(), $toc, 1);
+    $c->start(mkdisc(), $toc, 1);
+    is scalar(@SPAWNS), 1, 'ponovni start ne pokrece novi posao';
+    is $SPAWNS[0]{killed}, 0, 'tekuci posao nije ubijen';
+    finish($SPAWNS[-1]) for 1 .. 5;
+    is_deeply [ order() ], [ 1 .. 5 ], 'tekuca pesma nije ponovo u redu';
+}
+
+# ---- waiter: jedan cekac po plejeru ----
+{
+    my $c = mk();
+    $c->start(mkdisc(), $toc, 1);
+    my $w2 = $c->waiter(key => 'p1', discid => $DISCID, n => 2);
+    my $w3 = $c->waiter(key => 'p1', discid => $DISCID, n => 3);
+    my $w4 = $c->waiter(key => 'p1', discid => $DISCID, n => 4);
+    my $o5 = $c->waiter(key => 'p2', discid => $DISCID, n => 5);
+    is_deeply [ $w2->poll(1) ], ['stop'], 'stari cekac (preskok 1) staje';
+    is_deeply [ $w3->poll(1) ], ['stop'], 'stari cekac (preskok 2) staje';
+    is_deeply $c->{queue}, [ 2, 3, 4, 5 ], 'zastareli cekaci ne diraju red';
+    is_deeply [ $w4->poll(1) ], ['wait'], 'najnoviji ceka';
+    is $c->{queue}[0], 4, 'samo najnoviji prioritizuje';
+    is_deeply [ $w2->poll(1) ], ['stop'], 'stari i dalje staje';
+    is $c->{queue}[0], 4, 'red ostaje';
+    is_deeply [ $o5->poll(1) ], ['wait'], 'drugi plejer ima svog cekaca';
+    my $w5 = $c->waiter(key => 'p3', discid => $DISCID, n => 3);
+    is_deeply [ $w5->poll(0) ], ['stop'], 'LMS vise ne ceka pesmu: stop';
+    is $c->{queue}[0], 5, 'neaktivan cekac ne prioritizuje';
+    finish($SPAWNS[0]);
+    is $SPAWNS[1]{n}, 5, 'izvlaci se prioritizovana pesma';
+    finish($SPAWNS[1]);
+    my @r = $o5->poll(1);
+    is $r[0], 'ready', 'ready kad je pesma gotova';
+    like $r[1], qr{/05\.flac\z}, 'ready vraca putanju';
+    my $wd = $c->waiter(key => 'p4', discid => 'xBFBpdDGyUnu4ofAwN5ZrxozKwM-', n => 1);
+    is_deeply [ $wd->poll(1) ], [ 'fail', 'disk nije u kesu' ], 'drugi disk: fail';
+    $c->stop;
+    my $wi = $c->waiter(key => 'p4', discid => $DISCID, n => 2);
+    is_deeply [ $wi->poll(1) ], [ 'fail', 'kes ne izvlaci pesme' ], 'kes stoji: fail';
+}
+
+# ---- waiter: rok 120 s, produzava se dok .part raste, najvise 600 s ----
+{
+    my $T = 0;
+    my $c = mk();
+    $c->start(mkdisc(), $toc, 1);
+    my $part = $SPAWNS[0]{out};
+    my $grow = sub { open my $fh, '>>', $part or die; print {$fh} 'x' x 10; close $fh };
+
+    my $q = $c->waiter(key => 'q', discid => $DISCID, n => 3, now => sub { $T });
+    $T = 119;
+    is_deeply [ $q->poll(1) ], ['wait'], 'pesma u redu: ceka do 120 s';
+    $T = 120;
+    is_deeply [ $q->poll(1) ], [ 'fail', 'isteklo cekanje' ], 'pesma u redu: posle 120 s fail';
+
+    $T = 0;
+    my $w = $c->waiter(key => 'w', discid => $DISCID, n => 1, now => sub { $T });
+    is_deeply [ $w->poll(1) ], ['wait'], 'tekuca pesma: ceka';
+    for my $t (100, 200, 300, 400, 500) {
+        $T = $t;
+        $grow->();
+        is_deeply [ $w->poll(1) ], ['wait'], "t=$t: .part raste, rok produzen";
+    }
+    $T = 599;
+    is_deeply [ $w->poll(1) ], ['wait'], 't=599: jos u roku';
+    $T = 600;
+    $grow->();
+    is_deeply [ $w->poll(1) ], [ 'fail', 'isteklo cekanje' ], 't=600: tvrda granica i kad raste';
+
+    $T = 0;
+    my $s = $c->waiter(key => 's', discid => $DISCID, n => 1, now => sub { $T });
+    $T = 50;
+    $s->poll(1);
+    $T = 171;
+    is_deeply [ $s->poll(1) ], [ 'fail', 'isteklo cekanje' ], 'bez rasta: 120 s od poslednjeg rasta';
+    $c->stop;
 }
 
 done_testing;
