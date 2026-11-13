@@ -80,78 +80,92 @@
     return null;
   }
 
-  // Boja/vrednost iz Materiala: prvo promenljive koje je Material kopirao u nasu stranicu, pa iz roditelja.
+  // Vrednost promenljive iz Materiala: najpre iz roditelja (tamo je izracunata), pa iz nase stranice.
   function materialVar(pdoc, name) {
     var v = '';
+    try { v = window.parent.getComputedStyle(pdoc.documentElement).getPropertyValue(name).trim(); } catch (e) { /* ignorisi */ }
+    if (v && !/^var\(/.test(v)) return v;
     try { v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); } catch (e) { /* ignorisi */ }
-    if (v) return v;
-    try {
-      var src = pdoc.getElementById('iframe-page') || pdoc.documentElement;
-      v = window.parent.getComputedStyle(src).getPropertyValue(name).trim();
-    } catch (e) { /* ignorisi */ }
-    return v;
+    return /^var\(/.test(v) ? '' : v;
   }
 
-  // Bilo koji CSS zapis boje -> [r, g, b, a] (preko computed style-a); null ako nije boja.
-  function rgba(v) {
+  // CSS boja (#rgb, #rrggbb, rgb(), rgba()) -> [r, g, b, a] ili null. Bez DOM-a.
+  function parseColor(v) {
     if (!v) return null;
-    var p = document.createElement('span');
-    p.style.color = '';
-    p.style.color = v;
-    if (!p.style.color) return null;
-    document.body.appendChild(p);
-    var c = getComputedStyle(p).color;
-    document.body.removeChild(p);
-    var m = /rgba?\(([^)]+)\)/.exec(c);
+    v = String(v).trim();
+    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+    if (m) {
+      var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1];
+      return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16), 1];
+    }
+    m = /^rgba?\(([^)]+)\)$/i.exec(v);
     if (!m) return null;
     var n = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number);
+    if (n.length < 3 || n.some(isNaN)) return null;
     return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
   }
 
   function luma(c) { return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; }
+  function cssColor(c) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3] + ')'; }
+
+  // Cista odluka o temi iz Material-ovih promenljivih (objekat naziv -> tekst); bez DOM-a, pa se moze probati odvojeno.
+  // Tamna tema = pozadina tamna; tekst je --light-text-color (tamna) ili --dark-text-color (svetla).
+  function materialTheme(v) {
+    var bg = parseColor(v['--background-color']) || parseColor(v['--std-background-color']);
+    if (!bg) return null;
+    var dark = luma(bg) < 0.5;
+    var text = parseColor(dark ? v['--light-text-color'] : v['--dark-text-color']) || (dark ? [237, 236, 231, 1] : [51, 51, 51, 1]);
+    var out = { dark: dark, vars: {} };
+    var o = out.vars;
+    o['--bg'] = cssColor(bg);
+    o['--card'] = cssColor(parseColor(v['--std-popup-background-color']) || parseColor(v['--popup-background-color']) || bg);
+    o['--text'] = cssColor(text);
+    o['--muted'] = cssColor([text[0], text[1], text[2], 0.7]);
+    o['--line'] = cssColor([text[0], text[1], text[2], 0.2]);
+    var accent = parseColor(v['--primary-color']);
+    if (accent) {
+      o['--accent'] = cssColor(accent);
+      o['--accent-text'] = luma(accent) > 0.6 ? '#111111' : '#ffffff';
+    }
+    var link = parseColor(v['--accent-color']);
+    if (link) o['--link'] = cssColor(link);
+    o['--btn'] = cssColor([text[0], text[1], text[2], 0.12]);
+    o['--btn-hover'] = cssColor([text[0], text[1], text[2], 0.22]);
+    return out;
+  }
+
+  // Serif / Times u roditelju znaci da font nije pravi; tada Roboto pa sans-serif.
+  function materialFont(family) {
+    var f = String(family || '').trim();
+    if (!f || /^["']?(times|serif)/i.test(f) || /^["']?times new roman/i.test(f)) {
+      return 'Roboto, "Segoe UI", system-ui, sans-serif';
+    }
+    return f;
+  }
 
   // Kad je stranica u Material-ovom iframe-u: boje, font i velicina slova iz Materiala, uze margine.
   function adoptMaterial() {
     var pdoc = parentDoc();
-    if (!pdoc || !(pdoc.getElementById('iframe-page') || pdoc.querySelector('.v-application'))) return;
+    if (!pdoc || !(pdoc.getElementById('iframe-page') || pdoc.querySelector('.v-application') || materialVar(pdoc, '--background-color'))) return;
     var root = document.documentElement;
     root.classList.add('embedded');
 
-    var bg = rgba(materialVar(pdoc, '--background-color'));
-    var text = rgba(materialVar(pdoc, '--text-color'));
-    var dark = bg ? luma(bg) < 0.5 : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    root.setAttribute('data-theme', dark ? 'dark' : 'light');
-    root.style.colorScheme = dark ? 'dark' : 'light';
+    var names = ['--background-color', '--std-background-color', '--std-popup-background-color', '--popup-background-color',
+      '--light-text-color', '--dark-text-color', '--primary-color', '--accent-color'];
+    var raw = {};
+    names.forEach(function (n) { raw[n] = materialVar(pdoc, n); });
+    var th = materialTheme(raw);
+    if (!th) return;    // nema Material boja: ostaje izgled po prefers-color-scheme
 
-    function setVar(name, v) { if (v) root.style.setProperty(name, v); }
-    function css(c) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3] + ')'; }
+    root.setAttribute('data-theme', th.dark ? 'dark' : 'light');    // odluka iz Materiala, ne iz OS-a
+    root.style.colorScheme = th.dark ? 'dark' : 'light';
+    Object.keys(th.vars).forEach(function (k) { root.style.setProperty(k, th.vars[k]); });
 
-    if (bg) setVar('--bg', css(bg));
-    var pop = rgba(materialVar(pdoc, '--popup-background-color'));
-    setVar('--card', css(pop && pop[3] > 0.9 ? pop : (bg || [128, 128, 128, 1])));
-    if (text) setVar('--text', css(text));
-    if (text && window.CSS && CSS.supports && CSS.supports('color', 'color-mix(in srgb, red 50%, transparent)')) {
-      setVar('--muted', 'color-mix(in srgb, ' + css(text) + ' 70%, transparent)');
-    }
-    var line = rgba(materialVar(pdoc, '--list-item-border-color')) || rgba(materialVar(pdoc, '--border-color'));
-    if (line) setVar('--line', css(line));
-    var accent = rgba(materialVar(pdoc, '--primary-color'));
-    if (accent) {
-      setVar('--accent', css(accent));
-      setVar('--accent-text', luma(accent) > 0.6 ? '#111111' : '#ffffff');
-    }
-    var btn = rgba(materialVar(pdoc, '--btn-hover-color'));
-    if (btn) { setVar('--btn', css(btn)); btn[3] = Math.min(1, btn[3] + 0.15); setVar('--btn-hover', css(btn)); }
-
-    var font = '';
-    var fs = '';
-    try {
-      var cs = window.parent.getComputedStyle(pdoc.body);
-      font = cs.fontFamily;
-      fs = materialVar(pdoc, '--std-font-size') || cs.fontSize;
-    } catch (e) { /* ignorisi */ }
-    if (font) setVar('--font', font);
-    if (/^[0-9.]+px$/.test(fs)) setVar('--font-size', fs);
+    var family = '';
+    try { family = window.parent.getComputedStyle(pdoc.body).fontFamily; } catch (e) { /* ignorisi */ }
+    root.style.setProperty('--font', materialFont(family));
+    var fs = materialVar(pdoc, '--std-font-size');
+    if (/^[0-9.]+px$/.test(fs)) root.style.setProperty('--font-size', fs);
   }
 
   // ---------- JSON-RPC ----------

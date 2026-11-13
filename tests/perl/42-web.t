@@ -202,6 +202,14 @@ like($js, qr/window\.open\(.*'_blank', 'noopener'\)/, 'Settings u Material-u: wi
 like($page, qr/id="settings-link"[^>]*target="_blank"[^>]*rel="noopener"/, 'Settings link: target=_blank rel=noopener');
 like($css, qr/\.embedded/, 'CSS ima izgled za Material iframe');
 like($css, qr/\.player-pick\[hidden\]|fixed-player/, 'CSS: sakriven izbor plejera');
+# Tema iz Materiala: odluka po pozadini (ne po OS-u), tekst iz --light/--dark-text-color, kartice iz popup boje
+like($js, qr/function materialTheme\(/, 'cista funkcija materialTheme');
+like($js, qr/luma\(bg\) < 0\.5/, 'tamna tema = tamna pozadina iz Materiala');
+like($js, qr/dark \? v\['--light-text-color'\] : v\['--dark-text-color'\]/, 'tekst: --light-text-color na tamnoj, --dark-text-color na svetloj');
+like($js, qr/--std-popup-background-color/, 'kartice iz --std-popup-background-color');
+like($js, qr/setAttribute\('data-theme', th\.dark/, 'data-theme iz Materiala, ne iz prefers-color-scheme');
+like($js, qr/Roboto, "Segoe UI", system-ui, sans-serif/, 'rezervni font kad je roditeljski serif/Times');
+like($css, qr/\.link \{ color: var\(--link/, 'linkovi: --link (Material accent)');
 unlike($js, qr/innerHTML/, 'JS bez innerHTML');
 
 # ---------- Settings::validate (LMS okruzenje) ----------

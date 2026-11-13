@@ -74,7 +74,7 @@ h1 { font-size: 1.4rem; margin: 8px 0; }
 h2 { font-size: 1.3rem; margin: 0 0 2px; }
 h3 { font-size: 1.05rem; margin: 0 0 8px; }
 p { margin: 4px 0; }
-.link { color: var(--accent); }
+.link { color: var(--link, var(--accent)); }
 .muted { color: var(--muted); font-size: 0.92rem; }
 
 .card {
