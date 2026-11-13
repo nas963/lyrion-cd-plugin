@@ -53,4 +53,16 @@ is($c->get($id2), undef, 'ostecen JSON -> undef');
 	is(scalar @tmp, 0, 'nema zaostalih tmp fajlova');
 }
 
+# --- delete_manual: izbor izdanja posle rucne izmene (korisnikov poslednji izbor pobedjuje) ---
+{
+	$c->put($id, $res);
+	$c->put_manual($id, { %{ $res->{disc} }, album => 'Rucno' });
+	is($c->get($id)->{disc}{source}, 'manual', 'pre: rucna izmena pobedjuje');
+	ok($c->delete_manual($id), 'delete_manual');
+	ok(!-e "$dir/cache/$id.manual.json", '.manual.json obrisan');
+	isnt($c->get($id)->{disc}{source} // '', 'manual', 'posle: rezultat lookup-a');
+	ok(!$c->delete_manual($id), 'delete_manual bez fajla: 0');
+	ok(!eval { $c->delete_manual('../x'); 1 }, 'delete_manual: neispravan ID umire');
+}
+
 done_testing();

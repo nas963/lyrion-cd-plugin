@@ -73,6 +73,16 @@ sub put_manual {
 	return $self->_write("$self->{dir}/$id.manual.json", $disc);
 }
 
+# Brise rucnu izmenu (izbor izdanja posle nje je novija odluka korisnika). -> 1 obrisano, 0 nije bilo
+sub delete_manual {
+	my ($self, $id) = @_;
+	_check($id);
+	my $p = "$self->{dir}/$id.manual.json";
+	return 0 unless -e $p;
+	unlink $p or die "ne mogu da obrisem $p: $!\n";
+	return 1;
+}
+
 sub get {
 	my ($self, $id) = @_;
 	return undef unless valid_id($id);

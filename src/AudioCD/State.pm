@@ -417,6 +417,7 @@ sub select_release {
 			discid => $self->{discid}, cddbid => $self->{cddbid}, candidates => $c, selected => $i + 0,
 			fuzzy => $self->{fuzzy}, disc => $cand->{disc}, cover_urls => $self->{cover_urls},
 		});
+		$self->{d}{metacache}->delete_manual($self->{discid});    # izbor izdanja je noviji od rucne izmene
 		1;
 	} or $self->_log(warn => "MetaCache: $@");
 	$self->_fetch_cover;

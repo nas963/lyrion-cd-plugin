@@ -326,6 +326,13 @@ sub loaded {
 	my $e = world();
 	($ok, $err) = $e->{state}->edit({ album => 'x' });
 	is($err->{error}, 'no_disc', 'edit bez diska -> no_disc');
+
+	# rucna izmena, pa izbor izdanja: poslednji izbor korisnika pobedjuje (i posle ponovnog ucitavanja)
+	($ok, $err) = $st->select_release(1);
+	ok($ok, 'select_release posle edit-a');
+	is($st->snapshot->{metadata}{album}, 'Drugo izdanje 2', 'select_release: izabrano izdanje');
+	is($w->{meta}->get($ID)->{disc}{album}, 'Drugo izdanje 2', 'select_release posle edit-a: kes ima izdanje, ne rucnu izmenu');
+	is($w->{meta}->get($ID)->{disc}{source}, 'musicbrainz', 'select_release brise rucnu izmenu');
 }
 
 # ---------- Play ----------
