@@ -391,6 +391,7 @@ sub initPlugin {
 		cache         => $CACHE,
 		ripper        => $RIPPER,
 		rips_dir      => \&_rips_dir,
+		media_dirs    => \&media_dirs,
 		fetch_cover   => \&_fetch_cover,
 		play          => \&_play,
 		eject         => \&_eject,

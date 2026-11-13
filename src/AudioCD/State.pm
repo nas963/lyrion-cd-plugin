@@ -11,6 +11,7 @@ package Plugins::AudioCD::State;
 #   cache       => Plugins::AudioCD::Cache                                 (obavezno)
 #   ripper      => Plugins::AudioCD::Ripper                                (obavezno)
 #   rips_dir    => sub -> podrazumevani folder za rip-ove
+#   media_dirs  => sub -> [LMS muzicki folderi] (karakteri); rip dir iz zahteva samo ispod njih ili rips_dir
 #   fetch_cover => sub(\@urls, $dest_path, $cb->($ok))
 #   play        => sub($client_id, \@urls, $start_index) -> ($ok, $err)
 #   eject       => sub($was_busy, $done)    $done->() kad CDROMEJECT zavrsi ili odustane
@@ -35,6 +36,7 @@ use warnings;
 use utf8;
 
 use Plugins::AudioCD::DiscId;
+use Plugins::AudioCD::Library;
 use Plugins::AudioCD::Metadata::Lookup;
 use Plugins::AudioCD::Metadata::MusicBrainz;
 use Plugins::AudioCD::Profiles;
@@ -46,6 +48,7 @@ use constant CDS_DISC_OK => 4;
 my @REQUIRED = qw(pref read_toc lookup metacache cache ripper);
 my %NOOP = (
 	rips_dir      => sub { undef },
+	media_dirs    => sub { [] },
 	fetch_cover   => sub { },
 	play          => sub { (undef, { error => 'no_player' }) },
 	eject         => sub { },
@@ -531,8 +534,17 @@ sub request_rip {
 
 	my $profile = defined $a{profile} && length $a{profile} ? $a{profile} : ($self->_pref('profile') // 'balanced');
 	return _err('bad_args', field => 'profile') unless grep { $_ eq $profile } @Plugins::AudioCD::Profiles::NAMES;
-	my $dir = defined $a{dir} && length $a{dir} ? $a{dir} : $self->{d}{rips_dir}->();
+	my $def = $self->{d}{rips_dir}->();
+	my $dir = defined $a{dir} && length $a{dir} ? $a{dir} : $def;
 	return _err('bad_args', field => 'dir') unless defined $dir && $dir =~ m{^/} && $dir !~ m{(?:^|/)\.\.(?:/|\z)};
+	if (defined $a{dir} && length $a{dir}) {
+		# folder iz zahteva: samo ispod foldera za rip-ove ili LMS muzickog foldera (pravilo iz Library)
+		my $media = eval { $self->{d}{media_dirs}->() };
+		my @roots = grep { defined && length } $def, @{ ref $media eq 'ARRAY' ? $media : [] };
+		my ($clean, $lerr) = Plugins::AudioCD::Library::library_dir($dir, undef, \@roots);
+		return _err($lerr eq 'bad_args' ? 'bad_args' : 'rip_dir_outside', field => 'dir') if $lerr;
+		$dir = $clean;
+	}
 	my $eject = defined $a{eject} && length $a{eject} ? ($a{eject} ? 1 : 0) : ($self->_pref('ejectAfterRip') ? 1 : 0);
 	my $offset = $self->_pref('driveOffset');
 	$offset = undef unless defined $offset && length $offset;

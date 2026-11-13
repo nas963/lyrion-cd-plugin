@@ -114,7 +114,7 @@ my $page = slurp("$html/index.html");
 		is_deeply(\@m, [], "dinamicki kljucevi $p* postoje") or diag "@m";
 	}
 	# svi kodovi gresaka koje CLI/State/Library/Drive vracaju (Task 12/13) imaju poruku
-	my @codes = qw(bad_args bad_index bad_track busy busy_disc cache_failed cache_no_space drive_busy eject eject_pending failed
+	my @codes = qw(bad_args bad_index bad_track busy busy_disc cache_failed cache_no_space rip_dir_outside drive_busy eject eject_pending failed
 		missing_tools move_failed copy_failed verify_failed mkdir_failed no_audio no_disc no_device no_player no_space
 		not_available not_found play_failed rips_dir rip_failed save_failed stopped exists outside_library outside_rips
 		timeout permission io);

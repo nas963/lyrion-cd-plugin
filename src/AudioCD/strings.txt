@@ -462,6 +462,10 @@ PLUGIN_AUDIOCD_ERR_EXISTS
 	EN	The destination already exists; nothing was changed.
 	SR	Odredište već postoji; ništa nije menjano.
 
+PLUGIN_AUDIOCD_ERR_RIP_DIR_OUTSIDE
+	EN	The rip folder must be inside the rips folder or a music folder of the server.
+	SR	Folder za rip mora biti unutar foldera za rip-ove ili muzičkog foldera servera.
+
 PLUGIN_AUDIOCD_ERR_OUTSIDE_LIBRARY
 	EN	The library folder must be inside a music folder of the server.
 	SR	Folder biblioteke mora biti unutar muzičkog foldera servera.

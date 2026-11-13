@@ -150,6 +150,7 @@ sub world {
 		cache       => $w->{cache},
 		ripper      => $w->{ripper},
 		rips_dir    => sub { "$w->{dir}/rips" },
+		media_dirs  => sub { $o{media} // ['/mnt'] },
 		fetch_cover => sub { push @{ $w->{covers} }, [@_] },
 		play        => sub { push @{ $w->{plays} }, [@_]; return (1, undef) },
 		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0]; $w->{eject_done} = $_[1] },
@@ -434,6 +435,21 @@ sub loaded {
 
 	($ok, $err) = $w->{state}->request_rip(dir => 'relativno');
 	is($err->{error}, 'bad_args', 'rip: relativan folder odbijen');
+
+	# dir: samo ispod foldera za rip-ove ili LMS muzickog foldera
+	$w = loaded();
+	($ok, $err) = $w->{state}->request_rip(dir => '/etc/cron.d');
+	ok(!$ok, 'rip: folder van rips/muzickih foldera odbijen');
+	is($err->{error}, 'rip_dir_outside', 'rip: rip_dir_outside');
+	is($err->{field}, 'dir', 'rip: polje dir');
+	($ok, $err) = $w->{state}->request_rip(dir => '/mntx/a');
+	is($err->{error}, 'rip_dir_outside', 'rip: /mntx nije ispod /mnt');
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'rip: nista u redu');
+	($ok, $err) = $w->{state}->request_rip(dir => "$w->{dir}/rips/Posebno");
+	ok($ok, 'rip: podfolder foldera za rip-ove radi') or diag explain $err;
+	$w = loaded(media => []);
+	($ok, $err) = $w->{state}->request_rip(dir => '/mnt/x');
+	is($err->{error}, 'rip_dir_outside', 'rip: bez muzickih foldera samo rips folder');
 
 	$w = loaded();
 	$w->{ripper}{err} = { error => 'no_space', needed => 500, free => 100 };
