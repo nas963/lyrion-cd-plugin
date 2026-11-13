@@ -141,6 +141,7 @@ sub _add_history {
         album   => $d->{album},
         profile => $rec->{profile},
         result  => $result,
+        (defined $rec->{started} ? (started => $rec->{started}) : ()),
         %extra,
     };
     splice @{ $self->{history} }, HISTORY_MAX if @{ $self->{history} } > HISTORY_MAX;
@@ -309,7 +310,7 @@ sub _write_marker {
         open my $fh, '>:raw', $f or die "open: $!\n";
         print {$fh} JSON::PP->new->utf8->canonical->encode({
             id => $rec->{id}, discid => $d->{discid}, artist => $d->{artist}, album => $d->{album},
-            profile => $rec->{profile}, started => $self->{now}->(),
+            profile => $rec->{profile}, started => $rec->{started} // $self->{now}->(),
         }) or die "write: $!\n";
         close $fh or die "close: $!\n";
         1;
@@ -355,6 +356,7 @@ sub _pump {
 
 sub _start {
     my ($self, $rec) = @_;
+    $rec->{started}     //= $self->{now}->();    # pocetak ripa (ponovni pokusaj bez -S ga ne menja)
     $rec->{percent}       = 0;
     $rec->{track}         = undef;
     $rec->{track_percent} = 0;

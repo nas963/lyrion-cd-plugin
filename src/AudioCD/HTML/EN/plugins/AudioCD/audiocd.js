@@ -499,6 +499,9 @@
       var badge = el('span', 'badge ' + (RESULT_CLASS[e.result] || ''), S[rk] != null ? t(rk) : String(e.result || ''));
       line.appendChild(badge);
       if (e.profile) line.appendChild(document.createTextNode(' | ' + e.profile));
+      // trajanje ripa: od pocetka prvog pokusaja do upisa u istoriju (stari unosi nemaju 'started')
+      var secs = Number(e.time) - Number(e.started);
+      if (e.started && e.time && secs >= 0) line.appendChild(document.createTextNode(' | ' + t('UI_DURATION', [mmss(secs)])));
       main.appendChild(line);
 
       var ar = accuripText(e.accurip);

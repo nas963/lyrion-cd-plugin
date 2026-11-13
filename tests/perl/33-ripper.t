@@ -77,7 +77,8 @@ my $big_df = sub { 10 * 1024**3 };
 my @CHANGES;
 sub mk {
     my (%o) = @_;
-    return $R->new(spawn => $fake, df => $big_df, history_file => $o{hist}, on_change => sub { push @CHANGES, 1 }, cyanrip => 'cyanrip');
+    return $R->new(spawn => $fake, df => $big_df, history_file => $o{hist}, on_change => sub { push @CHANGES, 1 }, cyanrip => 'cyanrip',
+        ($o{now} ? (now => $o{now}) : ()));
 }
 
 # ---- uspesan rip ----
@@ -495,6 +496,7 @@ sub mk {
     is($e->{artist}, 'Izvođač', 'interrupted: artist iz markera');
     is($e->{discid}, 'd-rip-1-1', 'interrupted: discid');
     is($e->{profile}, 'secure', 'interrupted: profil');
+    is($e->{started}, 1000, 'interrupted: started iz markera');
     my $disk = JSON::PP->new->utf8->decode(slurp($hist));
     is(scalar @$disk, 2, 'interrupted: sacuvano na disku');
     is($r->recover_interrupted("$rips/nema"), 0, 'recover: nepostojeci folder');
@@ -596,6 +598,39 @@ sub mk {
     is($e->{error}, 'bad_args', 'bez rips_dir');
     (undef, $e) = $r->enqueue(toc => $toc, rips_dir => fresh_rips());
     is($e->{error}, 'bad_args', 'bez diska');
+}
+
+# ---- trajanje ripa: started u istoriji, ne menja se pri ponovnom pokusaju bez -S ----
+{
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    my $T = 1000;
+    my $n = 0;
+    $AUTO = sub {
+        my ($sp) = @_;
+        if (++$n == 1) { $T = 1030; $sp->{on_line}->('drive does not support changing speeds'); $sp->{on_exit}->(1) }
+        else { $T = 1754; write_rip($sp); $sp->{on_exit}->(0) }
+    };
+    my $r = mk(now => sub { $T });
+    $r->enqueue(disc => mkdisc(), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    my $e = $r->history->[0];
+    is($e->{result}, 'ok', 'trajanje: rip uspeo');
+    is($e->{started}, 1000, 'trajanje: started = pocetak prvog pokusaja');
+    is($e->{time}, 1754, 'trajanje: time = kraj');
+}
+{
+    # otkazan rip iz reda (nikad pokrenut) nema started
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    $AUTO = undef;
+    my $r = mk();
+    $r->enqueue(disc => mkdisc(), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    my ($id2) = $r->enqueue(disc => mkdisc(discid => 'drugi-disk-id'), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    $r->shutdown('shutdown');
+    my ($q) = grep { $_->{id} eq $id2 } @{ $r->history };
+    ok(!exists $q->{started}, 'trajanje: rip iz reda nema started');
+    my ($c) = grep { $_->{id} ne $id2 } @{ $r->history };
+    ok(defined $c->{started}, 'trajanje: otkazan tekuci rip ima started');
 }
 
 # ---- on_change ----

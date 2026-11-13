@@ -210,6 +210,10 @@ PLUGIN_AUDIOCD_UI_MOVE_STARTED
 	EN	Move started.
 	SR	Premeštanje je počelo.
 
+PLUGIN_AUDIOCD_UI_DURATION
+	EN	Took {0}
+	SR	Trajalo {0}
+
 PLUGIN_AUDIOCD_UI_RESULT_OK
 	EN	Done
 	SR	Završeno
