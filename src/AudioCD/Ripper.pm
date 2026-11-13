@@ -11,7 +11,6 @@ use utf8;
 use Encode ();
 use File::Copy ();
 use File::Path ();
-use POSIX ();
 use JSON::PP ();
 
 use Plugins::AudioCD::DiscId;
@@ -57,27 +56,11 @@ sub cleanup_stale {
     return $n;
 }
 
-# df -Pk <dir> bez shell-a; vraca slobodne bajtove ili undef ako se ne moze saznati.
+# df -Pk <dir> bez shell-a, sa rokom (Tools::df_free); slobodni bajtovi ili undef ako se ne moze
+# saznati (i kad df ne odgovori u roku: mrtav mrezni mount ne sme da zaustavi LMS).
 sub default_df {
     my ($dir) = @_;
-    my $df = Plugins::AudioCD::Tools::find('df') || 'df';
-    local $ENV{LC_ALL} = 'C';
-    my $pid = open(my $fh, '-|') // return undef;
-    if (!$pid) {
-        # dete nikad ne sme da izadje iz ovog bloka (u LMS-u bi nastavilo kao kopija servera)
-        eval {
-            untie *STDERR if tied *STDERR;    # LMS vezuje STDERR za logger (tie bez OPEN)
-            open(STDERR, '>', '/dev/null');
-            exec { $df } $df, '-Pk', _fs($dir);
-        };
-        POSIX::_exit(127);
-    }
-    my @lines = <$fh>;
-    close $fh;
-    return undef unless @lines >= 2;
-    my @f = split ' ', $lines[1];
-    return undef unless @f >= 4 && $f[3] =~ /^\d+\z/;
-    return $f[3] * 1024;
+    return Plugins::AudioCD::Tools::df_free(_fs($dir));
 }
 
 # ---------- objekat ----------
