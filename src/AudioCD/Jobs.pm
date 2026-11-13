@@ -208,8 +208,11 @@ sub pid { $_[0]{pid} }
 
 # ---------- stdin (spawn sa stdin => 'pipe') ----------
 
+use constant STDIN_BUF_MAX => 64 * 1024;    # bajtova koji cekaju u baferu (preko pipe-a)
+
 # write_stdin($tekst) -> 1 ako je prihvaceno, 0 ako pipe-a nema (zatvoren, dete mrtvo, bez stdin => 'pipe').
-# Nikad ne blokira: sto ne stane u pipe ceka u baferu i salje se tajmerom.
+# Nikad ne blokira: sto ne stane u pipe ceka u baferu i salje se tajmerom. Bafer je ogranicen
+# (STDIN_BUF_MAX): dete koje ne cita (zaglavljeno) dobija EOF umesto da LMS-u raste memorija.
 sub write_stdin {
 	my ($self, $data) = @_;
 	return 0 unless $self->{in} && !$self->{in_closing} && !$self->{done};
@@ -217,6 +220,11 @@ sub write_stdin {
 	utf8::encode($data) if utf8::is_utf8($data);
 	$self->{wbuf} .= $data;
 	$self->_flush_stdin;
+	if ($self->{in} && length $self->{wbuf} > STDIN_BUF_MAX) {
+		warn "Jobs: stdin pid $self->{pid} ne cita (bafer " . length($self->{wbuf}) . " B); pipe se zatvara\n";
+		$self->_close_in;
+		return 0;
+	}
 	return $self->{in} ? 1 : 0;
 }
 

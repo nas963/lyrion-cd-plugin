@@ -1212,6 +1212,72 @@ sub loaded {
 }
 
 {
+	# review 1: TOC greska helper/drive_timeout -> sledeci DISC_OK (pomocnik restartovan) ponovo cita
+	my $w = world();
+	$w->{async} = 1;
+	my $st = $w->{state};
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, 1, 'autoLoad: TOC zahtev');
+	$w->{toc_cbs}[0]->(undef, 'helper');
+	is($st->snapshot->{status}, 'error', 'TOC helper greska: error');
+	$st->on_drive_status(4, undef);    # restartovan pomocnik ponovo javlja status
+	is($w->{reads}, 2, 'posle helper greske DISC_OK ponovo trazi TOC');
+	$w->{toc_cbs}[1]->($TOC, undef);
+	is($st->snapshot->{discid}, $ID, 'disk ucitan posle restarta pomocnika');
+	$w = world();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$w->{toc_cbs}[0]->(undef, 'drive_timeout');
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, 2, 'posle drive_timeout DISC_OK ponovo trazi TOC');
+
+	# spreman disk + load bez force-a koji pukne na helper/drive_timeout: disk ostaje
+	for my $e (qw(helper drive_timeout)) {
+		$w = loaded();
+		$w->{async} = 1;
+		$st = $w->{state};
+		$st->on_load;
+		$w->{toc_cbs}[0]->(undef, $e);
+		is($st->snapshot->{status}, 'ready', "ready + load ($e): disk ostaje");
+		is($st->snapshot->{discid}, $ID, "ready + load ($e): discid ostaje");
+		is($w->{cache}{stops}, 0, "ready + load ($e): kes nije zaustavljen");
+	}
+	# force load sa helper greskom: greska se prikazuje
+	$w = loaded();
+	$w->{async} = 1;
+	$w->{state}->on_load(force => 1);
+	$w->{toc_cbs}[0]->(undef, 'helper');
+	is($w->{state}->snapshot->{status}, 'error', 'force load + helper greska: error');
+
+	# review 5: sinhrona greska zahteva -> load vraca gresku (CLI ok:0)
+	$w = world(toc_err => 'helper');
+	my ($ok, $err) = $w->{state}->on_load;
+	ok(!$ok, 'sinhrona helper greska: load nije ok');
+	is($err->{error}, 'helper', 'sinhrona helper greska: kod');
+	$w = world();
+	$w->{state}{d}{request_toc} = sub { die "puklo\n" };
+	($ok, $err) = $w->{state}->on_load;
+	is($err->{error}, 'io', 'request_toc puca: load vraca io');
+	$w = world();
+	($ok, $err, my $what) = $w->{state}->on_load;
+	ok($ok, 'sinhroni uspeh: ok');
+
+	# review 6: gasenje -> zakasneli helper odgovori ne prave prolazno 'error' stanje
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load(force => 1);
+	$st->begin_shutdown;
+	$w->{toc_cbs}[0]->(undef, 'helper');
+	isnt($st->snapshot->{status}, 'error', 'gasenje: helper greska ne menja stanje u error');
+	$st->on_drive_status(2, undef);
+	isnt($st->snapshot->{status}, 'empty', 'gasenje: status dogadjaj se ignorise');
+	$st->shutdown;
+	is($w->{kills}, 1, 'shutdown posle begin_shutdown i dalje radi');
+}
+
+{
 	# nastavak kesa: samo nedostajuce pesme (resume => 1), neuspele se preskacu
 	my $w = loaded();
 	my $st = $w->{state};

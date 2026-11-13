@@ -111,6 +111,19 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 	is $out->{items}[0]{type}, 'text', 'greska je tekst';
 }
 
+# 1.0.1: greske pomocnog procesa za drajv (load ok:0) imaju svoju poruku u strings.txt
+{
+	open my $fh, '<:encoding(UTF-8)', 'lib/Plugins/AudioCD/strings.txt' or die $!;
+	my %have = map { /^(PLUGIN_AUDIOCD_\w+)\s*$/ ? ($1 => 1) : () } <$fh>;
+	my %real = (string => sub { my ($tok) = @_; return $have{$tok} ? $tok : undef });
+	for my $code (qw(helper drive_timeout)) {
+		my $r = feed($ready, %real, run => sub { return (undef, { error => $code }) });
+		my $out;
+		$r->{items}[1]{url}->('CLIENT', sub { $out = shift }, {});
+		is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_ERR_' . uc($code), "greska $code -> svoja poruka (ne ERR_UNKNOWN)";
+	}
+}
+
 # stringovi koji ne postoje: greska -> ERR_UNKNOWN, profil -> sama vrednost
 {
 	my %miss = (string => sub { my ($tok, @a) = @_; return ($tok =~ /ERR_WEIRD|UI_PROFILE_/) ? undef : @a ? "$tok(" . join(",", @a) . ")" : $tok });

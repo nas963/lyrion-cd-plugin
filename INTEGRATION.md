@@ -61,8 +61,14 @@ Root je read-only sa overlay-em u RAM-u, pa ovi fajlovi moraju u ISO (ne pisu se
 ## 4. Grupe i prava
 
 - `usermod -aG cdrom squeezeboxserver` (u ISO: korisnik `squeezeboxserver` mora biti u grupi `cdrom`).
-- `/dev/sr0` treba da bude `root:cdrom` mod 660 (podrazumevano udev/Debian). Plugin otvara uredjaj za ioctl
-  (status, izbacivanje), a cyanrip i cd-paranoia citaju sa njega.
+- `/dev/sr0` treba da bude `root:cdrom` mod 660 (podrazumevano udev/Debian). Ioctl-ove (status drajva, TOC,
+  rezervni CDROMEJECT) radi pomocni proces `audiocd-drive` (dete LMS-a, `nice 10`, ionice `idle`; pokrece ga
+  plugin, ne systemd), nikad sam LMS proces; cyanrip i cd-paranoia citaju sa uredjaja.
+- Pomocni proces otvara uredjaj za svaku operaciju (`O_RDONLY|O_NONBLOCK`, deljeno) i odmah ga zatvara, a dok
+  drajv cita drugi proces je u pauzi. Pauza je asinhrona i salje se tek posle pokretanja posla, pa u kratkom
+  prozoru (milisekunde, najvise jedan ioctl) pomocni proces jos moze da drzi fd dok `eject`, `cd-paranoia` ili
+  `cyanrip` krecu. To ne smeta: niko ne otvara uredjaj ekskluzivno, a util-linux `eject` posle neuspelog
+  CDROMEJECT-a pada na SCSI START STOP UNIT.
 - Podrazumevani uredjaj je `/dev/cdrom` (symlink ka `sr0`). Moze se promeniti u podesavanjima.
 
 ## 5. Putanje
@@ -127,7 +133,8 @@ accuraterip.com.
 ## 7. Prioritet procesa
 
 Svaki spoljni proces koji plugin pokrene ide kao `nice -n 10 ionice -c3 <cmd>` (`Jobs::low_prio`): `cyanrip`,
-`cd-paranoia | flac`, `cd-info`, `cp -a` (premestanje albuma preko FS granice) i `eject`. `df -Pk` se pokrece
+`cd-paranoia | flac`, `cd-info`, `cp -a` (premestanje albuma preko FS granice), `eject` i pomocni proces
+`audiocd-drive`. `df -Pk` se pokrece
 direktno (bez nice-a, kratak, sa rokom 5 s). Nista nije RT (`SCHED_FIFO/RR`), nista ne ide u `audio.slice`.
 Procesi nasledjuju cgroup servisa `lyrionmusicserver`. Izmereno: `NI 10`, ionice `idle`, raspored `TS`. Ako
 Audio$OS stavlja LMS u neki slice, rip ce biti u njemu: ne dizati mu prioritet i ne stavljati ga u `audio.slice`

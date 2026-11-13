@@ -157,7 +157,7 @@ my $page = slurp("$html/index.html");
 	my @codes = qw(bad_args bad_index bad_track busy busy_disc cache_failed cache_no_space rip_dir_outside drive_busy eject eject_pending failed
 		missing_tools move_failed copy_failed verify_failed mkdir_failed no_audio no_disc no_device no_player no_space
 		not_available not_found play_failed rips_dir rip_failed save_failed stopped exists outside_library outside_rips
-		timeout permission io);
+		timeout permission io helper drive_timeout);
 	my @nomsg = grep { !$have{ 'PLUGIN_AUDIOCD_ERR_' . uc $_ } } @codes;
 	is_deeply(\@nomsg, [], 'svaki kod greske ima poruku') or diag "@nomsg";
 	ok($have{PLUGIN_AUDIOCD_ERR_UNKNOWN}, 'postoji poruka za nepoznat kod');

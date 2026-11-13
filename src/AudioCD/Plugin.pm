@@ -264,6 +264,11 @@ sub _drive_procs {
 
 # Pomocni proces miruje dok drajv cita drugi proces (cd-paranoia, cyanrip, cd-info, eject) ili
 # izbacivanje jos traje; poziva se na svaku promenu posla i tajmerom (SYNC_INTERVAL).
+# Pauza je asinhrona (poruka na stdin pomocnika) i salje se tek POSLE pokretanja posla, pa u kratkom
+# prozoru (milisekunde, najvise jedan CDROM_DRIVE_STATUS/TOC ioctl) pomocnik jos moze da drzi otvoren
+# fd uredjaja dok eject / cd-paranoia / cyanrip krecu. To je bezopasno: uredjaj je otvoren sa
+# O_NONBLOCK i deljeno (ne O_EXCL), cd-paranoia/cyanrip ga samo otvaraju i citaju, a util-linux eject,
+# ako CDROMEJECT ne prodje, pada na SCSI START STOP UNIT. Ceka se, ako ista, pomocni proces, ne LMS.
 sub _sync_drive {
 	return unless $DRIVE && $STATE;
 	my $busy = $STATE->drive_busy ne 'none' || $STATE->eject_pending;
@@ -494,6 +499,7 @@ sub shutdownPlugin {
 	Slim::Menu::BrowseLibrary->deregisterNode('audiocd');
 	_cancel_timer($SYNC);
 	_cancel_timer($DRIVE_START);
+	$STATE->begin_shutdown if $STATE;    # odgovori 'helper' iz DriveClient::stop se ignorisu (bez prolaznog 'error')
 	$DRIVE->stop if $DRIVE;    # quit + EOF + kill pre Jobs::kill_all
 	undef $DRIVE;
 	_cancel_timer($_) for values %TIMERS;

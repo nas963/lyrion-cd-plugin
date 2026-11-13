@@ -637,3 +637,11 @@ PLUGIN_AUDIOCD_MENU_PLAYING
 PLUGIN_AUDIOCD_MENU_TRACKS
 	EN	%s tracks
 	SR	%s pesama
+
+PLUGIN_AUDIOCD_ERR_HELPER
+	EN	The CD drive helper process is not running. It restarts by itself; try again in a moment.
+	SR	Pomoćni proces za CD drajv ne radi. Ponovo se pokreće sam; pokušajte ponovo za trenutak.
+
+PLUGIN_AUDIOCD_ERR_DRIVE_TIMEOUT
+	EN	The CD drive did not answer in time. Try again.
+	SR	CD drajv nije odgovorio na vreme. Pokušajte ponovo.

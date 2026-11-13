@@ -185,14 +185,23 @@ sub on_load {
 		$self->{errors} = [];
 		$self->_changed;
 	}
+	# Greska koja stigne odmah (zahtev puca, pomocnik ne radi) se vraca pozivaocu (CLI ok:0).
+	my ($in_call, $sync_err) = (1, undef);
 	my $sent = eval {
-		$self->{d}{request_toc}->($self->_device, sub { $self->_on_toc($req, \%opt, @_) });
+		$self->{d}{request_toc}->($self->_device, sub {
+			my ($toc, $err) = @_;
+			$sync_err = ref $toc eq 'HASH' ? undef : ($err // 'io') if $in_call;
+			$self->_on_toc($req, \%opt, @_);
+		});
 		1;
 	};
+	$in_call = 0;
 	unless ($sent) {
 		$self->_log(warn => "TOC zahtev: $@");
+		$sync_err = 'io';
 		$self->_on_toc($req, \%opt, undef, 'io');
 	}
+	return _err($sync_err) if defined $sync_err;
 	return (1, undef, 'started');
 }
 
@@ -207,6 +216,15 @@ sub _on_toc {
 	$err = 'io' if !$toc && !defined $err;
 
 	if (!$toc) {
+		if ($err =~ /^(?:helper|drive_timeout)\z/) {
+			# odgovor bez informacije o disku: sledeci DISC_OK (npr. od restartovanog pomocnika) cita ponovo
+			$self->{last_drive} = 0;
+			# ucitan disk ostaje kad obican load (bez force/offline) ne uspe zbog pomocnika
+			if (!$o{force} && !$o{offline} && $self->_ready) {
+				$self->_log(warn => "TOC nije procitan ($err); disk ostaje ucitan");
+				return;
+			}
+		}
 		$self->_drop_disc if defined $self->{discid};
 		$self->{gen}++;
 		$self->_reset($err eq 'no_disc' ? 'empty' : 'error', { code => $err });
@@ -683,6 +701,14 @@ sub on_rip_change {
 		}
 	}
 	$self->_changed;
+	return;
+}
+
+# Pocetak gasenja (Plugin ga zove pre DriveClient::stop): odgovori i dogadjaji koji stignu posle
+# (npr. 'helper' greske zahteva u toku) se ignorisu, pa nema prolaznog 'error' stanja.
+sub begin_shutdown {
+	my ($self) = @_;
+	$self->{stopped} = 1;
 	return;
 }
 

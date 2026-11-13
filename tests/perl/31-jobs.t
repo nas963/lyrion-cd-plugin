@@ -253,26 +253,48 @@ sub alive { my $p = shift; return kill(0, $p) && !_zombie($p) }
 	@LEFTOVER = ();
 }
 {
-	# vise od kapaciteta pipe-a: ostatak se baferuje i salje kad dete cita; close_stdin ceka da se isprazni
+	# vise od kapaciteta pipe-a (64 KB): ostatak (do 64 KB) se baferuje i salje kad dete cita;
+	# close_stdin ceka da se isprazni
 	my (@lines, $status);
 	my $job = $J->spawn(argv => ['sh', '-c', 'sleep 0.3; wc -c'], stdin => 'pipe',
 		on_line => sub { push @lines, $_[0] }, on_exit => sub { $status = $_[0] });
 	push @LEFTOVER, $job->pid;
 	my $t0 = Time::HiRes::time();
-	ok($job->write_stdin('x' x 300_000), 'veliki upis prihvacen');
+	ok($job->write_stdin('x' x 100_000), 'upis veci od pipe-a prihvacen (ostatak u baferu)');
 	ok(Time::HiRes::time() - $t0 < 0.2, 'veliki upis ne blokira');
 	$job->close_stdin;
 	ok($J->can('run_loop_for_tests')->(10), 'veliki upis: dete zavrsilo');
-	is(($lines[0] // '') =~ s/\s+//gr, '300000', 'svi bajtovi stigli');
+	is(($lines[0] // '') =~ s/\s+//gr, '100000', 'svi bajtovi stigli');
 	@LEFTOVER = ();
 }
 {
-	# dete umrlo pre citanja: upis ne obara roditelja (EPIPE umesto SIGPIPE)
-	local $SIG{PIPE} = 'DEFAULT';
-	my $job = $J->spawn(argv => ['true'], stdin => 'pipe');
+	# bafer je ogranicen (64 KB): dete koje ne cita -> upis vraca 0, pipe se zatvara, upozorenje
+	my @warn;
+	local $SIG{__WARN__} = sub { push @warn, @_ };
+	my $status;
+	my $job = $J->spawn(argv => ['sh', '-c', 'sleep 0.5; cat >/dev/null'], stdin => 'pipe', on_exit => sub { $status = $_[0] });
 	push @LEFTOVER, $job->pid;
-	ok($J->can('run_loop_for_tests')->(5), 'true zavrsio');
-	ok(!$job->write_stdin("x\n"), 'upis posle smrti deteta: 0, bez SIGPIPE-a');
+	ok(!$job->write_stdin('x' x 300_000), 'preko granice bafera: write_stdin vraca 0');
+	like("@warn", qr/stdin/, 'preko granice bafera: upozorenje');
+	ok(!$job->write_stdin("x\n"), 'pipe zatvoren: dalji upisi vracaju 0');
+	ok($J->can('run_loop_for_tests')->(5), 'dete dobija EOF i zavrsava');
+	is($status, 0, 'dete zavrsilo normalno');
+	@LEFTOVER = ();
+}
+{
+	# dete zatvorilo stdin a jos zivi (nije pokupljeno): upis dobija EPIPE, ne SIGPIPE koji bi oborio roditelja
+	local $SIG{PIPE} = 'DEFAULT';
+	my @lines;
+	my $job = $J->spawn(argv => ['sh', '-c', 'exec <&-; echo zatvoren; sleep 5'], stdin => 'pipe', on_line => sub { push @lines, $_[0] });
+	push @LEFTOVER, $job->pid;
+	my $t0 = time;
+	$J->can('_run_once')->(0.1) while !@lines && time - $t0 < 5;
+	is_deeply(\@lines, ['zatvoren'], 'dete zatvorilo stdin');
+	ok($job->is_running, 'dete jos zivi (nije pokupljeno)');
+	ok(!$job->write_stdin("x\n"), 'upis u zatvoren pipe: 0 (EPIPE), roditelj zivi');
+	ok(!$job->write_stdin("y\n"), 'posle EPIPE pipe je zatvoren');
+	$job->kill;
+	ok($J->can('run_loop_for_tests')->(7), 'dete ubijeno');
 	# bez stdin pipe-a: stdin je /dev/null, write_stdin vraca 0
 	my ($lines, $status, $j2) = run_job(argv => ['cat']);
 	is($status, 0, 'bez pipe-a: cat odmah dobija EOF (/dev/null)');
