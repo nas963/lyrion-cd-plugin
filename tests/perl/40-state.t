@@ -844,4 +844,80 @@ sub loaded {
 	is($w->{drive_calls}, $calls, 'bez odlozene provere: nema ioctl-a');
 }
 
+# ---------- M5: Play dok proces na drajvu jos umire ----------
+{
+	my $w = loaded();
+	$w->{procs} = 1;
+	is($w->{state}->drive_busy, 'process', 'drive_busy process');
+	my ($ok, $err) = $w->{state}->request_play('aa:bb', 1);
+	ok(!$ok, 'Play dok proces umire odbijen');
+	is($err->{error}, 'drive_busy', 'Play dok proces umire: drive_busy');
+	is($err->{busy}, 'process', 'Play dok proces umire: busy process');
+	is(scalar @{ $w->{cache}{starts} }, 0, 'kes nije pokrenut dok proces umire');
+	is(scalar @{ $w->{plays} }, 0, 'plejer nije dirnut');
+	$w->{procs} = 0;
+	($ok, $err) = $w->{state}->request_play('aa:bb', 1);
+	ok($ok, 'Play posle procesa radi');
+}
+
+# ---------- request_cache: audiocd:// pesma pustena bez audiocd play (lista posle restarta, Add, ...) ----------
+{
+	my $w = loaded();
+	my $st = $w->{state};
+	my ($ok, $err) = $st->request_cache($ID, 4);
+	ok($ok, 'request_cache: disk u drajvu') or diag explain $err;
+	is(scalar @{ $w->{cache}{starts} }, 1, 'request_cache pokrece kes');
+	is($w->{cache}{starts}[0]{n}, 4, 'request_cache: od trazene pesme');
+	is(scalar @{ $w->{plays} }, 0, 'request_cache ne dira listu plejera');
+
+	# kes kompletan: nista novo
+	$w->{cache}->complete_all(9);
+	($ok, $err) = $st->request_cache($ID, 2);
+	ok($ok, 'request_cache: kes kompletan -> ok');
+	is(scalar @{ $w->{cache}{starts} }, 1, 'kompletan kes se ne pokrece ponovo');
+
+	# drugi disk u drajvu: brzo odbijanje
+	($ok, $err) = $st->request_cache('xBFBpdDGyUnu4ofAwN5ZrxozKwM-', 1);
+	is($err->{error}, 'wrong_disc', 'drugi disk -> wrong_disc');
+	($ok, $err) = $st->request_cache($ID, 42);
+	is($err->{error}, 'bad_track', 'nepostojeca pesma -> bad_track');
+}
+{
+	# isto pravilo za zauzet drajv kao request_play
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->request_rip(profile => 'fast');
+	my ($ok, $err) = $st->request_cache($ID, 1);
+	is($err->{error}, 'drive_busy', 'request_cache tokom ripa -> drive_busy');
+	is($err->{busy}, 'rip', 'request_cache tokom ripa: busy rip');
+	is(scalar @{ $w->{cache}{starts} }, 0, 'kes nije pokrenut tokom ripa');
+
+	$w = loaded();
+	$w->{cdinfo} = 1;
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{error}, 'drive_busy', 'request_cache dok cd-info zivi -> drive_busy');
+	is($err->{busy}, 'lookup', 'request_cache: busy lookup');
+	ok($w->{lookup_kills} >= 1, 'request_cache ubija cd-info');
+
+	$w = loaded();
+	$w->{procs} = 1;
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{busy}, 'process', 'request_cache dok proces umire: busy process');
+
+	$w = loaded(missing => ['flac']);
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{error}, 'missing_tools', 'request_cache bez flac-a');
+
+	# disk se jos cita (lookup u toku): not_ready (ProtocolHandler ponavlja)
+	$w = world();
+	$w->{state}->on_load;
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{error}, 'not_ready', 'disk se cita -> not_ready');
+
+	# prazan drajv
+	$w = world();
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{error}, 'wrong_disc', 'prazan drajv -> wrong_disc');
+}
+
 done_testing;

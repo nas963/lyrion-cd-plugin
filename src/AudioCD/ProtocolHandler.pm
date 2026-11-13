@@ -27,6 +27,7 @@ package Plugins::AudioCD::ProtocolHandler;
 #   Slim::Player::ProtocolHandlers->registerHandler(audiocd => 'Plugins::AudioCD::ProtocolHandler');
 #   Plugins::AudioCD::ProtocolHandler->set_cache($cache);
 # Metapodaci: Plugins::AudioCD::Plugin::disc_info($discid) -> $disc|undef.
+# Pokretanje kesa za pesmu dodatu mimo Play-a: Plugins::AudioCD::Plugin::ensure_cached($discid, $n).
 
 use strict;
 use warnings;
@@ -166,7 +167,10 @@ sub getNextTrack {
 	return $fail->('kes nije podesen') unless $CACHE;
 
 	my $key = eval { $song->master->id } // '';
-	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n);
+	# Pesma dodata mimo audiocd play (lista posle restarta, Add / Play next, ponovo ubacen disk):
+	# Waiter preko ensure pokrece kes ako je taj disk u drajvu, a za drugi disk odmah javlja gresku.
+	my $ensure = Plugins::AudioCD::Plugin->can('ensure_cached');
+	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n, $ensure ? (ensure => $ensure) : ());
 	my $check;
 	$check = sub {
 		my ($what, $arg) = $w->poll(_song_active($song));

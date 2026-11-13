@@ -470,27 +470,53 @@ sub _lookup_busy_err {
 	return _err('drive_busy', busy => 'lookup');
 }
 
+# Pokrece kes od pesme $n (disk je ready, pesma postoji). Pravila zauzetog drajva su ista za Play
+# i za audiocd:// pesmu koja se pusta bez Play-a: rip ili proces koji jos umire -> drive_busy,
+# cd-info se ubija pa drive_busy (ponovi za trenutak); isti disk nastavlja postojeci kes.
+sub _start_cache {
+	my ($self, $n) = @_;
+	return (1, undef) if $self->_cache_complete;
+	my $busy = $self->drive_busy;
+	return _err('drive_busy', busy => $busy) if $busy eq 'rip' || $busy eq 'process';
+	return $self->_lookup_busy_err if $busy eq 'lookup';
+	my @miss = $self->_missing('cd-paranoia', 'flac');
+	return _err('missing_tools', tools => \@miss) if @miss;
+	my $c = $self->{d}{cache};
+	unless ($c->start($self->{disc}, $self->{toc}, $n + 0)) {
+		my $e = $c->can('last_error') ? $c->last_error : undef;
+		return _err($e || 'cache_failed');
+	}
+	return (1, undef);
+}
+
 sub request_play {
 	my ($self, $client_id, $n) = @_;
 	return _err('no_disc') unless $self->_ready;
 	my @audio = $self->_audio;
 	return _err('bad_track') unless defined $n && $n =~ /^\d+\z/ && grep { $_ == $n } @audio;
 
-	unless ($self->_cache_complete) {
-		my $busy = $self->drive_busy;
-		return _err('drive_busy') if $busy eq 'rip';
-		return $self->_lookup_busy_err if $busy eq 'lookup';
-		my @miss = $self->_missing('cd-paranoia', 'flac');
-		return _err('missing_tools', tools => \@miss) if @miss;
-		# isti disk: Cache nastavlja postojeci kes (gotove pesme ostaju, izabrana ide napred)
-		$self->{d}{cache}->start($self->{disc}, $self->{toc}, $n + 0)
-			or return _err('cache_failed');
-	}
+	my ($started, $serr) = $self->_start_cache($n);
+	return (undef, $serr) unless $started;
 	my ($idx) = grep { $audio[$_] == $n } 0 .. $#audio;
 	my @urls = map { "audiocd://$self->{discid}/$_" } @audio;
 	my ($ok, $err) = $self->{d}{play}->($client_id, \@urls, $idx);
 	$self->_changed;
 	return $ok ? (1, undef) : (undef, $err || { error => 'play_failed' });
+}
+
+# request_cache($discid, $n): audiocd:// pesma pustena mimo request_play (lista vracena posle
+# restarta LMS-a, Add / Play next, ponovo ubacen disk) -> kes se pokrece, lista plejera se ne dira.
+# Greske: wrong_disc (u drajvu nije taj disk: odmah fail), not_ready (disk se jos cita),
+# bad_track, drive_busy (busy => rip|process|lookup), missing_tools, no_space, cache_failed.
+sub request_cache {
+	my ($self, $discid, $n) = @_;
+	return _err('stopped') if $self->{stopped};
+	return _err('wrong_disc') unless defined $discid && defined $self->{discid} && $discid eq $self->{discid};
+	return _err('not_ready') unless $self->_ready;
+	return _err('bad_track') unless defined $n && $n =~ /^\d+\z/ && grep { $_ == $n } $self->_audio;
+	my ($ok, $err) = $self->_start_cache($n);
+	$self->_changed if $ok;
+	return ($ok, $err);
 }
 
 # request_rip(profile, dir, eject) -> ($job_id, undef) | (undef, $err). FLAC nivo se ne prosledjuje (Ruling 15).

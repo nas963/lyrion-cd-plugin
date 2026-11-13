@@ -19,6 +19,7 @@ use Plugins::AudioCD::Tools;
 
 use constant WAIT_MAX => 120;    # sekundi cekanja na pesmu bez napretka
 use constant HARD_MAX => 600;    # apsolutna granica cekanja (i dok .part raste)
+use constant ENSURE_RETRY => 60;    # s, ponavljanje pokretanja kesa dok cd-info / proces / lookup pustaju drajv
 
 # MusicBrainz disc ID: 28 znakova base64 (+/= -> ._-), uvek se zavrsava sa '-'.
 sub valid_discid {
@@ -235,6 +236,8 @@ sub waiter {
 		deadline => $t0 + $wm,
 		hard     => $t0 + $hm,
 		size     => -1,
+		ensure   => $a{ensure},              # sub($discid, $n) -> ($ok, $err): pokreni kes (State::request_cache)
+		retry_to => $t0 + ENSURE_RETRY,
 	}, 'Plugins::AudioCD::Cache::Waiter';
 }
 
@@ -354,6 +357,23 @@ sub poll {
 	return ('stop') if !$active || ($c->{waiters}{ $self->{key} } // 0) != $self->{gen};
 	my ($discid, $n) = @$self{qw(discid n)};
 	if (defined(my $p = $c->path($discid, $n))) { return ('ready', $p) }
+	# Kes ne izvlaci ovaj disk (pesma dodata mimo Play-a): pokreni ga jednom; zauzet drajv
+	# (cd-info, proces koji umire) ili disk koji se jos cita se ponavljaju do ENSURE_RETRY s.
+	my $extracting = defined $c->discid && defined $discid && $c->discid eq $discid && $c->busy;
+	if ($self->{ensure} && !$self->{ensured} && !$extracting) {
+		my ($ok, $err) = eval { $self->{ensure}->($discid, $n) };
+		$err = { error => 'failed', message => $@ } if !$ok && !$err;
+		if ($ok) {
+			$self->{ensured} = 1;
+			if (defined(my $p = $c->path($discid, $n))) { return ('ready', $p) }
+		}
+		else {
+			my $e = ref $err eq 'HASH' ? ($err->{error} // 'failed') : "$err";
+			my $retry = $e eq 'not_ready' || ($e eq 'drive_busy' && ($err->{busy} // '') =~ /^(?:lookup|process)\z/);
+			return ('wait') if $retry && $self->{now}->() < $self->{retry_to};
+			return ('fail', "kes nije pokrenut: $e");
+		}
+	}
 	return ('fail', 'disk nije u kesu') unless defined $c->discid && defined $discid && $c->discid eq $discid;
 	return ('fail', 'izvlacenje pesme nije uspelo') if $c->{failed}{$n};
 	return ('fail', 'kes ne izvlaci pesme') unless $c->busy;

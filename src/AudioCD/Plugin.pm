@@ -75,6 +75,14 @@ sub disc_info {
 	return $STATE ? $STATE->disc_info($discid) : undef;
 }
 
+# ProtocolHandler: audiocd:// pesma se pusta, a kes ne izvlaci taj disk -> pokreni ga (ista
+# pravila zauzetog drajva kao Play, lista plejera se ne dira). -> ($ok, $err)
+sub ensure_cached {
+	my ($discid, $n) = @_;
+	return (undef, { error => 'not_available' }) unless $STATE;
+	return $STATE->request_cache($discid, $n);
+}
+
 # ---------- tajmeri i Jobs backend ----------
 
 sub _timer {

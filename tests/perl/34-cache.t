@@ -347,4 +347,66 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     $c->stop;
 }
 
+# ---- waiter + ensure: kes nije pokrenut za ovaj disk (lista posle restarta, Add, ponovo ubacen disk) ----
+{
+    my $T = 0;
+    my $c = mk();
+    my @calls;
+    my @answer = (1, undef);
+    my $ensure = sub { push @calls, [@_]; my @a = @answer; $c->start(mkdisc(), $toc, $_[1]) if $a[0]; return @a };
+
+    my $w = $c->waiter(key => 'e', discid => $DISCID, n => 3, now => sub { $T }, ensure => $ensure);
+    is_deeply [ $w->poll(1) ], ['wait'], 'ensure: kes pokrenut, ceka';
+    is_deeply \@calls, [ [ $DISCID, 3 ] ], 'ensure pozvan sa discid i pesmom';
+    is $SPAWNS[0]{n}, 3, 'izvlaci se trazena pesma';
+    $w->poll(1);
+    is scalar(@calls), 1, 'ensure samo jednom dok kes radi';
+    finish($SPAWNS[0]);
+    is(($w->poll(1))[0], 'ready', 'ensure: pesma gotova -> ready');
+    $c->stop;
+
+    # drugi disk u drajvu: odmah fail (bez cekanja 120 s)
+    @calls = ();
+    @answer = (undef, { error => 'wrong_disc' });
+    my $x = $c->waiter(key => 'e', discid => 'xBFBpdDGyUnu4ofAwN5ZrxozKwM-', n => 1, now => sub { $T }, ensure => $ensure);
+    my @r = $x->poll(1);
+    is $r[0], 'fail', 'ensure wrong_disc -> fail odmah';
+    like $r[1], qr/wrong_disc/, 'razlog wrong_disc';
+
+    # rip u toku: fail odmah
+    @answer = (undef, { error => 'drive_busy', busy => 'rip' });
+    my $rp = $c->waiter(key => 'e', discid => $DISCID, n => 1, now => sub { $T }, ensure => $ensure);
+    is(($rp->poll(1))[0], 'fail', 'ensure drive_busy rip -> fail');
+
+    # cd-info / proces koji umire / disk se cita: ponavlja se do 60 s
+    for my $e ([ 'drive_busy', 'lookup' ], [ 'drive_busy', 'process' ], [ 'not_ready', undef ]) {
+        @calls = ();
+        @answer = (undef, { error => $e->[0], defined $e->[1] ? (busy => $e->[1]) : () });
+        $T = 0;
+        my $b = $c->waiter(key => 'e', discid => $DISCID, n => 2, now => sub { $T }, ensure => $ensure);
+        is_deeply [ $b->poll(1) ], ['wait'], "ensure $e->[0]/" . ($e->[1] // '') . ': ceka';
+        $T = 59;
+        is_deeply [ $b->poll(1) ], ['wait'], 'jos u roku za ponavljanje';
+        is scalar(@calls), 2, 'ensure se ponavlja';
+        $T = 60;
+        is(($b->poll(1))[0], 'fail', 'posle 60 s fail');
+    }
+
+    # posle ponavljanja drajv slobodan: kes krece
+    @calls = ();
+    $T = 0;
+    @answer = (undef, { error => 'drive_busy', busy => 'lookup' });
+    my $l = $c->waiter(key => 'e', discid => $DISCID, n => 2, now => sub { $T }, ensure => $ensure);
+    $l->poll(1);
+    @answer = (1, undef);
+    $T = 1;
+    is_deeply [ $l->poll(1) ], ['wait'], 'drajv slobodan: kes pokrenut, ceka';
+    is $SPAWNS[-1]{n}, 2, 'izvlaci se pesma 2';
+    $c->stop;
+
+    # bez ensure: staro ponasanje
+    my $o = $c->waiter(key => 'e', discid => $DISCID, n => 2, now => sub { $T });
+    is_deeply [ $o->poll(1) ], [ 'fail', 'kes ne izvlaci pesme' ], 'bez ensure: fail';
+}
+
 done_testing;
