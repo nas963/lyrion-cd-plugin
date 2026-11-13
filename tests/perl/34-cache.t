@@ -464,4 +464,63 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     $u->stop;
 }
 
+# ---- kes ostaje posle izbacivanja diska (stop bez clear) ----
+{
+    my $dir = fresh_dir();
+    my $c = mk(dir => $dir);
+    $c->start(mkdisc(), $toc, 1);
+    finish($SPAWNS[0]);                  # pesma 1 gotova, 2 se izvlaci
+    is $SPAWNS[1]{n}, 2, 'pesma 2 u toku';
+    $c->stop;                            # izbacivanje: stop, ne clear
+    ok $SPAWNS[1]{killed}, 'izvlacenje prekinuto';
+    ok !$c->busy, 'posle stop nema posla';
+    ok -f "$dir/$DISCID/01.flac", 'gotova pesma ostaje na disku';
+    ok !-e "$dir/$DISCID/02.flac.part", 'nedovrsena pesma obrisana';
+    is $c->discid, $DISCID, 'discid kesa ostaje';
+    is $c->path($DISCID, 1), "$dir/$DISCID/01.flac", 'gotova pesma se i dalje servira';
+    is $c->path($DISCID, 2), undef, 'nedovrsena pesma se ne servira';
+    is_deeply $c->status->{done}, [1], 'status.done ostaje';
+    is_deeply $c->status->{failed}, [], 'prekinuta pesma nije failed';
+
+    # ProtocolHandler cekac: gotova -> ready; nedovrsena -> odmah fail (bez cekanja 120 s)
+    my $w = $c->waiter(key => 'p1', discid => $DISCID, n => 1);
+    my ($what, $arg) = $w->poll(1);
+    is $what, 'ready', 'cekac: gotova pesma ejektovanog diska se pusta';
+    is $arg, "$dir/$DISCID/01.flac", 'cekac: putanja';
+    $w = $c->waiter(key => 'p1', discid => $DISCID, n => 3);
+    ($what, $arg) = $w->poll(1);
+    is $what, 'fail', 'cekac: nedovrsena pesma ejektovanog diska odmah pada';
+    like $arg, qr/ne izvlaci/, 'cekac: razlog';
+
+    # nova pesma ne pokrece spawn-ove dok disk nije vracen
+    my $n0 = @SPAWNS;
+    is scalar(@SPAWNS), $n0, 'nista se ne pokrece samo od sebe';
+
+    # resumable: isti disk, ima nedostajucih pesama, nista ne radi
+    ok $c->resumable($DISCID), 'resumable: isti disk sa nedostajucim pesmama';
+    ok !$c->resumable('xBFBpdDGyUnu4ofAwN5ZrxozKwM-'), 'resumable: drugi disk ne';
+
+    # isti disk ponovo: nastavlja samo nedostajuce pesme
+    @SPAWNS = ();
+    ok $c->start(mkdisc(), $toc, 1), 'start istog diska posle stop';
+    is_deeply [ order() ], [2], 'nastavlja od prve nedostajuce pesme (1 se ne izvlaci ponovo)';
+    finish($SPAWNS[-1]);
+    is_deeply [ order() ], [2, 3], 'pa sledeca';
+    ok -f "$dir/$DISCID/01.flac", 'pesma 1 netaknuta';
+
+    # svi gotovi: nije resumable
+    for (1 .. 3) { finish($SPAWNS[-1]) if $c->busy }
+    ok !$c->resumable($DISCID), 'resumable: sve gotovo -> ne';
+
+    # drugi disk brise kes ejektovanog
+    my $dir2 = fresh_dir();
+    my $c2 = mk(dir => $dir2);
+    $c2->start(mkdisc(), $toc, 1);
+    finish($SPAWNS[0]);
+    $c2->stop;
+    $c2->start(mkdisc(discid => 'xBFBpdDGyUnu4ofAwN5ZrxozKwM-'), $toc, 1);
+    ok !-e "$dir2/$DISCID", 'drugi disk posle ejekta: kes prethodnog obrisan';
+    is $c2->path($DISCID, 1), undef, 'stari disk vise nije servisan';
+}
+
 done_testing;

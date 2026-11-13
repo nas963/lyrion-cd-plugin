@@ -248,7 +248,8 @@ sub _drive_procs {
 	return $n > 0 ? $n : 0;
 }
 
-# Izbacivanje: ioctl, a ako ne uspe, alat `eject` preko Jobs-a (Ruling 1).
+# Izbacivanje: alat `eject` preko Jobs-a (USB slim drajvovi ignorisu CDROMEJECT ioctl); ioctl samo
+# ako alata nema (Drive::eject_async).
 # $done->() se zove tacno jednom kad je izbacivanje pokusano ili napusteno (State: eject_pending).
 sub _eject {
 	my ($was_busy, $done) = @_;
@@ -256,20 +257,7 @@ sub _eject {
 	my $finish = sub { return if $fired++; eval { $done->() if $done; 1 } or $log->warn("eject done: $@") };
 	my $dev = _device();
 	my $do = sub {
-		my ($ok, $err) = Plugins::AudioCD::Drive::eject($dev);
-		return $finish->() if $ok;
-		my $tool = Plugins::AudioCD::Tools::find('eject');
-		unless ($tool) {
-			$log->warn("izbacivanje nije uspelo ($err), alat eject ne postoji");
-			return $finish->();
-		}
-		my $job = eval {
-			Plugins::AudioCD::Jobs->spawn(
-				argv    => [ Plugins::AudioCD::Jobs::low_prio($tool, $dev) ],
-				on_exit => sub { $log->warn("eject $dev: status $_[0]") if $_[0]; $finish->() },
-			);
-		};
-		$finish->() unless $job;
+		Plugins::AudioCD::Drive::eject_async($dev, done => $finish, warn => sub { $log->warn($_[0]) });
 	};
 	return $do->() unless $was_busy;
 	# Posao je upravo prekinut: CDROMEJECT tek kad nijedan proces vise ne drzi drajv (cd-info,

@@ -28,7 +28,9 @@ package Plugins::AudioCD::State;
 # Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok je zauzet nema ioctl-a
 # (load, eject_event), jer bi ioctl na drajvu koji cita drugi proces blokirao LMS;
 # Play tokom ripa samo ako je disk ceo u kesu;
-# drugi Play istog diska koristi isti kes; izbacivanje prekida sve poslove i brise stanje;
+# drugi Play istog diska koristi isti kes; izbacivanje prekida sve poslove i brise stanje diska,
+# ali kes ostaje: gotove pesme se i dalje sviraju, a kes se brise tek kad se ubaci DRUGI disk
+# (ili pri gasenju); isti disk ponovo ubacen nastavlja izvlacenje pesama koje fale;
 # zakasneli odgovori (lookup, omot) starog diska se ignorisu (brojac generacija).
 
 use strict;
@@ -147,13 +149,14 @@ sub _kill_lookup {
 	return;
 }
 
-# Prekida poslove na disku koji vise nije u drajvu.
+# Prekida poslove na disku koji vise nije u drajvu. Kes: izvlacenje staje, a gotove pesme ostaju
+# (disk izbacen); clear_cache => 1 samo kad je u drajvu drugi disk (ili disk bez audio pesama).
 sub _drop_disc {
-	my ($self) = @_;
+	my ($self, %o) = @_;
 	$self->_kill_lookup;
 	delete $self->{pending_autorip};
 	my $c = $self->{d}{cache};
-	eval { $c->stop; $c->clear; 1 } or $self->_log(warn => "kes: $@");
+	eval { $c->stop; $c->clear if $o{clear_cache}; 1 } or $self->_log(warn => "kes: $@");
 	my $r = $self->{d}{ripper};
 	if ($r->busy) { eval { $r->abort_all('ejected'); 1 } or $self->_log(warn => "rip: $@") }
 	return;
@@ -180,7 +183,7 @@ sub on_load {
 	}
 	my @audio = Plugins::AudioCD::DiscId::audio_tracks($toc);
 	if (!@audio) {
-		$self->_drop_disc if defined $self->{discid};
+		$self->_drop_disc(clear_cache => 1);    # drugi (neaudio) disk: kes izbacenog diska vise ne treba
 		$self->{gen}++;
 		$self->_reset('empty', { code => 'no_audio' });
 		$self->_changed;
@@ -191,7 +194,12 @@ sub on_load {
 	my $same = defined $self->{discid} && $self->{discid} eq $id;
 	return (1, undef) if $same && !$o{force} && !$o{offline} && $self->{status} =~ /^(?:reading|ready)\z/;
 
-	$self->_drop_disc if defined $self->{discid} && !$same;    # zamenjen disk
+	$self->_drop_disc(clear_cache => 1) if defined $self->{discid} && !$same;    # zamenjen disk
+	# kes izbacenog diska (State je prazan) se brise tek kad je u drajvu drugi disk
+	my $cid = $self->{d}{cache}->discid;
+	if (defined $cid && $cid ne $id) {
+		eval { $self->{d}{cache}->clear; 1 } or $self->_log(warn => "kes: $@");
+	}
 	my $gen = ++$self->{gen};
 	$self->_reset('reading');
 	$self->{toc}    = $toc;
@@ -261,6 +269,22 @@ sub _apply {
 	$self->_fetch_cover;
 	$self->_changed;
 	$self->_auto_rip;
+	$self->_resume_cache;
+	return;
+}
+
+# Isti disk ponovo ubacen posle izbacivanja: nastavlja izvlacenje pesama koje fale (gotove se ne diraju).
+# Ne radi ako je drajv zauzet (npr. autoRip je upravo poceo) ili je kes kompletan.
+sub _resume_cache {
+	my ($self) = @_;
+	return if $self->{stopped} || $self->{eject_pending} || !$self->_ready;
+	my $c = $self->{d}{cache};
+	return unless $c->can('resumable') && $c->resumable($self->{discid});
+	return if $self->drive_busy ne 'none';
+	my ($first) = grep { !$c->ready($_) } $self->_audio;
+	return unless defined $first;
+	my ($ok, $err) = $self->_start_cache($first);
+	$self->_log(warn => 'nastavak kesa nije pokrenut: ' . ($err->{error} // '?')) unless $ok;
 	return;
 }
 

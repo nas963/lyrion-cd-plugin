@@ -118,4 +118,41 @@ sub eject {
 	return (defined $r ? 1 : undef, $e);
 }
 
+# Izbacivanje bez blokiranja LMS-a: alat `eject` preko Jobs-a (low_prio, asinhrono); USB slim
+# drajvovi ignorisu CDROMEJECT ioctl. Samo ako alata nema, pada se na ioctl (eject()).
+# eject_async($dev, done => sub, [tool => $putanja|undef, spawn => sub(%a), ioctl => sub($dev), warn => sub($msg)])
+# $done se zove tacno jednom: kad alat izadje (status != 0 se upozorava sa izlazom alata),
+# kad spawn ne uspe, ili odmah posle ioctl rezerve.
+sub eject_async {
+	my ($dev, %o) = @_;
+	my $fired = 0;
+	my $warn = sub { $o{warn}->(@_) if $o{warn} };
+	my $finish = sub { return if $fired++; eval { $o{done}->() if $o{done}; 1 } or $warn->("eject done: $@") };
+	my $tool = exists $o{tool} ? $o{tool} : do { require Plugins::AudioCD::Tools; Plugins::AudioCD::Tools::find('eject') };
+	unless ($tool) {
+		my ($ok, $err) = ($o{ioctl} || \&eject)->($dev);
+		$warn->('izbacivanje nije uspelo (' . ($err // 'ioctl') . '), alat eject ne postoji') unless $ok;
+		return $finish->();
+	}
+	require Plugins::AudioCD::Jobs;
+	my $spawn = $o{spawn} || sub { Plugins::AudioCD::Jobs->spawn(@_) };
+	my @tail;
+	my $job = eval {
+		$spawn->(
+			argv    => [ Plugins::AudioCD::Jobs::low_prio($tool, $dev) ],
+			on_line => sub { push @tail, $_[0]; shift @tail while @tail > 5 },
+			on_exit => sub {
+				my ($st) = @_;
+				$warn->("eject $dev: status $st" . (@tail ? ': ' . join(' | ', @tail) : '')) if $st;
+				$finish->();
+			},
+		);
+	};
+	unless ($job) {
+		$warn->("eject $dev: pokretanje alata nije uspelo" . ($@ ? ": $@" : ''));
+		$finish->();
+	}
+	return;
+}
+
 1;

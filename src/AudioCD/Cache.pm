@@ -222,6 +222,14 @@ sub busy {
 	return ($self->{current} || @{ $self->{queue} }) ? 1 : 0;
 }
 
+# Da li disk $id ima pesme koje nedostaju a izvlacenje je stalo (izbacen disk, ponovo ubacen)?
+sub resumable {
+	my ($self, $id) = @_;
+	return 0 unless defined $id && defined $self->{discid} && $id eq $self->{discid};
+	return 0 if $self->busy || !@{ $self->{tracks} };
+	return (grep { !$self->{done}{$_} } @{ $self->{tracks} }) ? 1 : 0;
+}
+
 sub discid { $_[0]{discid} }
 sub dir    { $_[0]{dir} }
 sub last_error { $_[0]{last_error} }    # posle neuspelog start-a: { error => 'cache_no_space', needed }

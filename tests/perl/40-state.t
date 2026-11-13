@@ -79,16 +79,18 @@ sub mkresult {
 		if (!defined $s->{discid} || $s->{discid} ne $disc->{discid}) { $s->{done} = {} }
 		$s->{discid} = $disc->{discid};
 		$s->{busy}   = 1;
+		$s->{started} = 1;
 		return 1;
 	}
 	sub stop   { my $s = shift; $s->{stops}++; $s->{busy} = 0 }
-	sub clear  { my $s = shift; $s->{clears}++; $s->{busy} = 0; $s->{discid} = undef; $s->{done} = {} }
+	sub clear  { my $s = shift; $s->{clears}++; $s->{busy} = 0; $s->{discid} = undef; $s->{done} = {}; $s->{started} = 0 }
 	sub busy   { $_[0]{busy} }
+	sub resumable { my ($s, $id) = @_; return defined $s->{discid} && $s->{discid} eq $id && $s->{started} && !$s->{busy} && !$s->{complete} ? 1 : 0 }
 	sub last_error { $_[0]{fail} }
 	sub discid { $_[0]{discid} }
 	sub ready  { my ($s, $n) = @_; $s->{done}{$n} ? 1 : 0 }
 	sub status { my $s = shift; { done => [ sort { $a <=> $b } keys %{ $s->{done} } ], failed => [], current => undef, percent => 0 } }
-	sub complete_all { my ($s, $n) = @_; $s->{done} = { map { $_ => 1 } 1 .. $n }; $s->{busy} = 0 }
+	sub complete_all { my ($s, $n) = @_; $s->{done} = { map { $_ => 1 } 1 .. $n }; $s->{busy} = 0; $s->{complete} = 1 }
 }
 
 # ---- lazni Ripper ----
@@ -476,8 +478,9 @@ sub loaded {
 	ok(!defined $s->{metadata}, 'stari metapodaci nisu prikazani');
 	is_deeply($s->{releases}, [], 'nema izdanja');
 	ok($w->{cache}{stops} >= 1, 'Cache::stop');
-	ok($w->{cache}{clears} >= 1, 'Cache::clear');
-	ok(!defined $w->{cache}->discid, 'kes obrisan');
+	is($w->{cache}{clears}, 0, 'eject: Cache::clear se NE zove (kes ostaje)');
+	is($w->{cache}->discid, $ID, 'eject: kes diska ostaje');
+	is($s->{cache}{discid}, $ID, 'eject: snapshot nosi cache.discid');
 
 	$w = loaded();
 	$st = $w->{state};
@@ -522,6 +525,75 @@ sub loaded {
 	is_deeply($w->{ripper}{aborts}, ['ejected'], 'eject komanda: abort_all');
 	is($w->{ejects}, 1, 'eject komanda: drajv izbacen');
 	is($st->snapshot->{status}, 'empty', 'eject komanda: empty');
+}
+
+# ---------- kes ostaje posle izbacivanja ----------
+{
+	# eject komanda: izvlacenje se zaustavlja, kes se ne brise
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{done} = { 1 => 1 };
+	$st->eject;
+	is($w->{cache}{clears}, 0, 'eject komanda: kes nije obrisan');
+	ok($w->{cache}{stops} >= 1, 'eject komanda: izvlacenje zaustavljeno');
+	my $s = $st->snapshot;
+	is($s->{status}, 'empty', 'eject komanda: empty');
+	is($s->{cache}{discid}, $ID, 'eject komanda: cache.discid u snapshot-u');
+	is_deeply($s->{cache}{done}, [1], 'eject komanda: done lista u snapshot-u');
+
+	# eject_event i polling: isto
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{busy} = 0;
+	$w->{drive} = [ 2, undef ];
+	$st->on_eject_event;
+	is($w->{cache}{clears}, 0, 'eject_event: kes nije obrisan');
+	is($w->{cache}->discid, $ID, 'eject_event: kes diska ostaje');
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{busy} = 0;
+	$st->on_drive_status(2, undef);
+	is($w->{cache}{clears}, 0, 'polling bez diska: kes nije obrisan');
+
+	# isti disk ponovo: nastavlja izvlacenje preostalih pesama, bez brisanja
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{done} = { 1 => 1 };
+	$st->eject;
+	$w->{eject_done}->();
+	my $starts = scalar @{ $w->{cache}{starts} };
+	$st->on_drive_status(4, undef);
+	$w->{lookup}->last_cb->(mkresult());
+	is($w->{cache}{clears}, 0, 'isti disk ponovo: kes nije obrisan');
+	is(scalar @{ $w->{cache}{starts} }, $starts + 1, 'isti disk ponovo: izvlacenje nastavljeno');
+	is_deeply($w->{cache}{done}, { 1 => 1 }, 'isti disk ponovo: gotove pesme ostaju');
+
+	# isti disk, kes kompletan: nema novog start-a
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}->complete_all(9);
+	$st->on_eject;
+	my $s0 = scalar @{ $w->{cache}{starts} };
+	$st->on_load;
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{cache}{starts} }, $s0, 'isti disk ponovo sa kompletnim kesom: nema novog start-a');
+
+	# drugi disk: kes starog se brise tek tada
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$st->eject;
+	$w->{eject_done}->();
+	is($w->{cache}{clears}, 0, 'drugi disk: pre ubacivanja kes jos postoji');
+	$w->{toc} = $TOC2;
+	$st->on_load;
+	ok($w->{cache}{clears} >= 1, 'drugi disk: kes starog diska obrisan');
+	ok(!defined $w->{cache}->discid, 'drugi disk: nema starog discid-a u kesu');
 }
 
 # ---------- polling ----------
