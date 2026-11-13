@@ -19,15 +19,19 @@ use Plugins::AudioCD::Cache;
 
 use constant PAGE        => 'plugins/AudioCD/index.html';
 use constant COVER_PREFIX => 'plugins/AudioCD/cover/';
+# Material Skin ubacuje velicinu pre ekstenzije (_100x100_f, _50x50_o, ...); to je jedini dozvoljen sufiks.
+# Omot se vraca u originalnoj velicini (pretrazivac ga smanjuje), bez izrade novih fajlova.
+use constant SIZE_SUFFIX => qr/(?:_[0-9]{1,4}x[0-9]{1,4}(?:_[a-z])?)?/;
 # isti oblik kao Cache::valid_discid: 27 znakova + '-'; nista drugo (../ je odbijeno)
-use constant COVER_RE    => qr{^plugins/AudioCD/cover/([A-Za-z0-9._-]{27}-)\.jpg\z};
+use constant COVER_RE    => qr{^plugins/AudioCD/cover/([A-Za-z0-9._-]{27}-)@{[ SIZE_SUFFIX ]}\.jpg\z};
+use constant GENERIC_RE  => qr{^plugins/AudioCD/cd-generic@{[ SIZE_SUFFIX ]}\.png\z};
 
 my $DIR = File::Basename::dirname(__FILE__);
 my $GENERIC = File::Spec->catfile($DIR, 'HTML', 'EN', 'plugins', 'AudioCD', 'cd-generic.png');
 
 my $METACACHE;
 
-# plugins/AudioCD/cover/<discid>.jpg -> discid | undef
+# plugins/AudioCD/cover/<discid>[_WxH[_x]].jpg -> discid | undef
 sub cover_discid {
 	my ($path) = @_;
 	return undef unless defined $path;
@@ -129,7 +133,7 @@ sub init {
 		sub { (cover_file($_[0], $cover_path))[1] });
 
 	# Staticki PNG van html/ LMS ne servira, pa i genericki CD ide kroz isti mehanizam
-	Slim::Web::Pages->addRawDownload(qr{^plugins/AudioCD/cd-generic\.png\z}, sub { $GENERIC }, 'image/png');
+	Slim::Web::Pages->addRawDownload(GENERIC_RE, sub { $GENERIC }, 'image/png');
 
 	Slim::Web::Pages->addPageLinks('plugins', { PLUGIN_AUDIOCD => PAGE });
 	return;

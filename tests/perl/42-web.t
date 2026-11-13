@@ -25,7 +25,21 @@ for my $bad ('../x', '../../etc/passwd', '..', "$id/../x", 'x', 'abc-', "${id}x"
 	(my $shown = $bad) =~ s/\n/\\n/g;
 	is(Plugins::AudioCD::Web::cover_discid($p), undef, "odbijen: $shown");
 }
+for my $suf (qw(_100x100_f _50x50_o _300x300_f _40x40 _1200x1200_c)) {
+	is(Plugins::AudioCD::Web::cover_discid("/plugins/AudioCD/cover/$id$suf.jpg"), $id, "Material velicina $suf se prihvata");
+}
+for my $badsuf ('_100x100_ff', '_x100_f', '_100x100_F', '_100x100_f/..', '_10000x1_f', '_100x100_f_f', '_100_f', '-100x100', '_100x100_1') {
+	is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/$id$badsuf.jpg"), undef, "odbijen sufiks: $badsuf");
+}
+is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/../x_100x100_f.jpg"), undef, 'losa putanja i sa sufiksom');
+is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/abc-_100x100_f.jpg"), undef, 'los discid i sa sufiksom');
 is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/$id.png"), undef, 'samo .jpg');
+for my $g ('cd-generic.png', 'cd-generic_100x100_f.png', 'cd-generic_50x50_o.png', 'cd-generic_300x300_f.png') {
+	like("plugins/AudioCD/$g", Plugins::AudioCD::Web::GENERIC_RE, "genericki CD: $g");
+}
+for my $g ('cd-generic.jpg', 'cd-generic_x.png', 'cd-generic_100x100_ff.png', 'cd-generic/../x.png', 'cd-genericX.png') {
+	unlike("plugins/AudioCD/$g", Plugins::AudioCD::Web::GENERIC_RE, "genericki CD odbijen: $g");
+}
 is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/other/$id.jpg"), undef, 'samo ispod cover/');
 is(Plugins::AudioCD::Web::cover_discid(undef), undef, 'undef');
 
@@ -49,6 +63,10 @@ is(Plugins::AudioCD::Web::cover_discid(undef), undef, 'undef');
 	read $g, my $magic, 8;
 	is($magic, "\x89PNG\r\n\x1a\n", 'cd-generic.png je PNG');
 	ok(-s $f < 100_000, 'cd-generic.png je mala');
+
+	($f, $ct) = Plugins::AudioCD::Web::cover_file("plugins/AudioCD/cover/${id}_100x100_f.jpg", $cover_path);
+	is($f, "$tmp/$id.jpg", 'Material velicina: isti fajl omota');
+	is($ct, 'image/jpeg', '...i image/jpeg');
 
 	($f, $ct) = Plugins::AudioCD::Web::cover_file('plugins/AudioCD/cover/../x.jpg', $cover_path);
 	like($f, qr{/cd-generic\.png\z}, 'losa putanja ne cita nista sem generickog CD-a');
@@ -143,6 +161,18 @@ for my $cmdname (qw(status history load play rip cancel eject select_release edi
 	like($js, qr/\Q'$cmdname'\E/, "JS poziva audiocd $cmdname");
 }
 like($js, qr/\['players', 0, 99\]/, 'plejeri preko ["players",0,99]');
+
+# Material: tema, fiksni plejer, Settings samo u novom tabu
+like($js, qr/params\.get\('player'\)|get\('player'\)/, 'JS cita ?player=');
+like($js, qr/'--background-color'/, 'JS cita Material boje (--background-color)');
+like($js, qr/'--primary-color'/, 'JS cita Material akcenat (--primary-color)');
+like($js, qr/window\.parent/, 'JS detektuje Material iframe');
+like($js, qr/stopPropagation\(\)/, 'Settings klik ne stize do Material-ovog handlera');
+like($js, qr/window\.open\(.*'_blank', 'noopener'\)/, 'Settings u Material-u: window.open(_blank, noopener)');
+like($page, qr/id="settings-link"[^>]*target="_blank"[^>]*rel="noopener"/, 'Settings link: target=_blank rel=noopener');
+like($css, qr/\.embedded/, 'CSS ima izgled za Material iframe');
+like($css, qr/\.player-pick\[hidden\]|fixed-player/, 'CSS: sakriven izbor plejera');
+unlike($js, qr/innerHTML/, 'JS bez innerHTML');
 
 # ---------- Settings::validate (LMS okruzenje) ----------
 {
