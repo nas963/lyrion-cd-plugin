@@ -52,7 +52,8 @@ def main():
                 continue
             add(out, f'{top}/system/{path.relative_to(SYSTEM).as_posix()}', lf_bytes(path),
                 executable=(path.name == 'audiocd-notify'))
-        found_xml = False
+        # Verzija ide i u install.xml i u Plugin.pm ($VERSION: User-Agent, status); test 50 trazi da budu iste.
+        found_xml = found_pm = False
         for path in sorted(PLUGIN.rglob('*')):
             if path.is_dir():
                 continue
@@ -63,9 +64,17 @@ def main():
                 if count != 1:
                     raise SystemExit('install.xml: ocekivan tacno jedan <version>')
                 found_xml = True
+            if path.name == 'Plugin.pm' and path.parent == PLUGIN:
+                data, count = re.subn(rb"our \$VERSION = '[^']*';",
+                                      b"our $VERSION = '" + version.encode() + b"';", data)
+                if count != 1:
+                    raise SystemExit('Plugin.pm: ocekivan tacno jedan our $VERSION')
+                found_pm = True
             add(out, f'{top}/AudioCD/{path.relative_to(PLUGIN).as_posix()}', data)
         if not found_xml:
             raise SystemExit('Nema src/AudioCD/install.xml')
+        if not found_pm:
+            raise SystemExit('Nema src/AudioCD/Plugin.pm')
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     (dist / 'audiocd.zip.sha256').write_text(f'{digest}  audiocd.zip\n', encoding='ascii', newline='\n')
     (dist / 'get.sh').write_bytes(lf_bytes(ROOT / 'packaging' / 'get.sh'))
