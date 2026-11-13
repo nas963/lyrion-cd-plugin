@@ -26,6 +26,15 @@ like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/
 	is($pm_ver, $xml_ver, 'Plugin.pm $VERSION == install.xml version');
 }
 
+# Cache i Lookup citaju device/secureCache pri svakoj upotrebi (promena podesavanja bez restarta)
+{
+	open my $p, '<', "$dir/Plugin.pm" or die $!;
+	my $src = do { local $/; <$p> };
+	ok($src !~ qr/device\s*=>\s*_device\(\)/, 'Plugin.pm: device se ne zamrzava pri startu');
+	ok($src !~ qr/secure\s*=>\s*\$prefs->get/, 'Plugin.pm: secureCache se ne zamrzava pri startu');
+	ok($src =~ qr/device\s*=>\s*\\&_device/, 'Plugin.pm: device kao code ref');
+}
+
 open my $strings, '<', "$dir/strings.txt" or die $!;
 my $text = do { local $/; <$strings> };
 like $text, qr/^PLUGIN_AUDIOCD\n\tEN\t/m, 'string naziva plugina';

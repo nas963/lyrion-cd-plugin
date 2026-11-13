@@ -100,6 +100,20 @@ sub mk {
     $s->stop;
 }
 
+# ---- device i secure kao code ref: citaju se za svaku pesmu ----
+{
+    @SPAWNS = ();
+    my ($dev, $sec) = ('/dev/sr0', 0);
+    my $c = $C->new(spawn => $fake, dir => fresh_dir(), device => sub { $dev }, secure => sub { $sec },
+        paranoia => 'cd-paranoia', flac => 'flac');
+    $c->start(mkdisc(), $toc, 1);
+    like $SPAWNS[0]{cmd}, qr/'cd-paranoia' '-Z' '-d' '\/dev\/sr0' '1'/, 'code ref: /dev/sr0, brzo';
+    ($dev, $sec) = ('/dev/sr1', 1);
+    finish($SPAWNS[0]);
+    like $SPAWNS[1]{cmd}, qr/'cd-paranoia' '-d' '\/dev\/sr1' '2'/, 'code ref: promena uredjaja i secure vazi za sledecu pesmu';
+    $c->stop;
+}
+
 # ---- redosled, path, ready, status ----
 {
     my $c = mk();

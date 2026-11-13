@@ -53,8 +53,8 @@ sub new {
 	return bless {
 		spawn     => $a{spawn} || sub { Plugins::AudioCD::Jobs->spawn(@_) },
 		dir       => $a{dir},
-		device    => $a{device},
-		secure    => $a{secure} ? 1 : 0,
+		device    => $a{device},    # string ili sub (pref se cita za svaku pesmu)
+		secure    => $a{secure},    # 0|1 ili sub
 		on_change => $a{on_change},
 		paranoia  => $a{paranoia} || Plugins::AudioCD::Tools::find('cd-paranoia') || 'cd-paranoia',
 		flac      => $a{flac} || Plugins::AudioCD::Tools::find('flac') || 'flac',
@@ -75,6 +75,11 @@ sub _notify {
 	eval { $cb->(); 1 } or warn "Cache on_change: $@";
 	return;
 }
+
+# Vrednost ili code ref (Plugin daje sub koji cita pref: promena vazi bez restarta).
+sub _val { my ($v) = @_; return ref $v eq 'CODE' ? $v->() : $v }
+sub _device { my $d = _val($_[0]{device}); return defined $d && length $d ? $d : '/dev/cdrom' }
+sub _secure { return _val($_[0]{secure}) ? 1 : 0 }
 
 sub _disc_dir { "$_[0]{dir}/$_[1]" }
 sub _file { my ($self, $n) = @_; return sprintf('%s/%02d.flac', $self->_disc_dir($self->{discid}), $n) }
@@ -267,7 +272,7 @@ sub argv_for {
 		push @tags, '-T', "$k=" . _clean($v) if defined $v && $v ne '';
 	}
 	return Plugins::AudioCD::Jobs::low_prio(Plugins::AudioCD::Jobs::pipeline(
-		[ $self->{paranoia}, ($self->{secure} ? () : '-Z'), '-d', $self->{device}, $n, '-' ],
+		[ $self->{paranoia}, ($self->_secure ? () : '-Z'), '-d', $self->_device, $n, '-' ],
 		[ $self->{flac}, '-0', '--silent', '-f', @tags, '-o', $part, '-' ],
 	));
 }

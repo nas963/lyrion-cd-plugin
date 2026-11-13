@@ -319,4 +319,18 @@ sub run {
 	}
 }
 
+# --- device kao code ref: cita se pri svakom lookup-u (pref se menja bez restarta) ---
+{
+	my $dev = '/dev/sr0';
+	my $w = world(mb => 'err', query => 'err', cdinfo => slurp('cdinfo-cdtext.txt'));
+	$w->{lookup} = $L->can('new')->($L, http_get => $w->{http_get}, run_cmd => $w->{run_cmd},
+		timer => $w->{timer}, now => $w->{now}, version => '0.1.0', device => sub { $dev });
+	run($w);
+	ok((grep { $_ eq '/dev/sr0' } @{ $w->{argv} }), 'device code ref: /dev/sr0');
+	$dev = '/dev/sr1';
+	run($w);
+	ok((grep { $_ eq '/dev/sr1' } @{ $w->{argv} }), 'device code ref: promena pref-a vazi odmah');
+	ok(!(grep { ref } @{ $w->{argv} }), 'u argv nema reference');
+}
+
 done_testing();

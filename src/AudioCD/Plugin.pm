@@ -346,7 +346,7 @@ sub initPlugin {
 		$cdir = $play;
 	}
 	_clear_dir($cdir);
-	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, device => _device(), secure => $prefs->get('secureCache'),
+	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, device => \&_device, secure => sub { $prefs->get('secureCache') },
 		on_change => sub { $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(
@@ -361,7 +361,7 @@ sub initPlugin {
 		run_cmd  => \&_run_cmd,
 		timer    => sub { _timer(@_); return },
 		version  => $VERSION,
-		device   => _device(),
+		device   => \&_device,    # zivo: promena podesavanja vazi bez restarta
 	);
 
 	my $last_status = '';

@@ -40,9 +40,15 @@ sub new {
 		timer    => $a{timer},
 		now      => $a{now} || sub { Time::HiRes::time() },
 		version  => defined $a{version} ? $a{version} : '0',
-		device   => defined $a{device} ? $a{device} : '/dev/cdrom',
+		device   => $a{device},    # string ili sub (Plugin cita pref za svaki lookup)
 		next_mb  => undef,
 	}, $class;
+}
+
+sub _device {
+	my ($self) = @_;
+	my $d = ref $self->{device} eq 'CODE' ? $self->{device}->() : $self->{device};
+	return defined $d && length $d ? $d : '/dev/cdrom';
 }
 
 sub generic_disc {
@@ -179,7 +185,7 @@ sub _cdtext {
 	my ($self, $toc, $cb) = @_;
 	return $cb->(undef) unless ref $self->{run_cmd} eq 'CODE';
 	$cb = _once($cb);
-	my @argv = ('nice', '-n', '10', 'ionice', '-c3', Plugins::AudioCD::Metadata::CdText::command($self->{device}));
+	my @argv = ('nice', '-n', '10', 'ionice', '-c3', Plugins::AudioCD::Metadata::CdText::command($self->_device));
 	$self->{timer}->(CDTEXT_TIMEOUT, sub { $cb->(undef) });
 	my $ok = eval {
 		$self->{run_cmd}->(\@argv, sub {
