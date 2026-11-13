@@ -63,6 +63,94 @@
     return null;
   }
 
+  // ---------- Material Skin (iframe) ----------
+
+  var FIXED_PLAYER = (function () {
+    try { return new URLSearchParams(window.location.search).get('player') || ''; } catch (e) { return ''; }
+  })();
+
+  // Roditeljski dokument (isti origin) ili null kad nismo u iframe-u ili nemamo pristup.
+  function parentDoc() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) return window.parent.document;
+    } catch (e) { /* drugi origin */ }
+    return null;
+  }
+
+  // Boja/vrednost iz Materiala: prvo promenljive koje je Material kopirao u nasu stranicu, pa iz roditelja.
+  function materialVar(pdoc, name) {
+    var v = '';
+    try { v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); } catch (e) { /* ignorisi */ }
+    if (v) return v;
+    try {
+      var src = pdoc.getElementById('iframe-page') || pdoc.documentElement;
+      v = window.parent.getComputedStyle(src).getPropertyValue(name).trim();
+    } catch (e) { /* ignorisi */ }
+    return v;
+  }
+
+  // Bilo koji CSS zapis boje -> [r, g, b, a] (preko computed style-a); null ako nije boja.
+  function rgba(v) {
+    if (!v) return null;
+    var p = document.createElement('span');
+    p.style.color = '';
+    p.style.color = v;
+    if (!p.style.color) return null;
+    document.body.appendChild(p);
+    var c = getComputedStyle(p).color;
+    document.body.removeChild(p);
+    var m = /rgba?\(([^)]+)\)/.exec(c);
+    if (!m) return null;
+    var n = m[1].split(/[ ,\/]+/).filter(Boolean).map(Number);
+    return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
+  }
+
+  function luma(c) { return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; }
+
+  // Kad je stranica u Material-ovom iframe-u: boje, font i velicina slova iz Materiala, uze margine.
+  function adoptMaterial() {
+    var pdoc = parentDoc();
+    if (!pdoc || !(pdoc.getElementById('iframe-page') || pdoc.querySelector('.v-application'))) return;
+    var root = document.documentElement;
+    root.classList.add('embedded');
+
+    var bg = rgba(materialVar(pdoc, '--background-color'));
+    var text = rgba(materialVar(pdoc, '--text-color'));
+    var dark = bg ? luma(bg) < 0.5 : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    root.style.colorScheme = dark ? 'dark' : 'light';
+
+    function setVar(name, v) { if (v) root.style.setProperty(name, v); }
+    function css(c) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3] + ')'; }
+
+    if (bg) setVar('--bg', css(bg));
+    var pop = rgba(materialVar(pdoc, '--popup-background-color'));
+    setVar('--card', css(pop && pop[3] > 0.9 ? pop : (bg || [128, 128, 128, 1])));
+    if (text) setVar('--text', css(text));
+    if (text && window.CSS && CSS.supports && CSS.supports('color', 'color-mix(in srgb, red 50%, transparent)')) {
+      setVar('--muted', 'color-mix(in srgb, ' + css(text) + ' 70%, transparent)');
+    }
+    var line = rgba(materialVar(pdoc, '--list-item-border-color')) || rgba(materialVar(pdoc, '--border-color'));
+    if (line) setVar('--line', css(line));
+    var accent = rgba(materialVar(pdoc, '--primary-color'));
+    if (accent) {
+      setVar('--accent', css(accent));
+      setVar('--accent-text', luma(accent) > 0.6 ? '#111111' : '#ffffff');
+    }
+    var btn = rgba(materialVar(pdoc, '--btn-hover-color'));
+    if (btn) { setVar('--btn', css(btn)); btn[3] = Math.min(1, btn[3] + 0.15); setVar('--btn-hover', css(btn)); }
+
+    var font = '';
+    var fs = '';
+    try {
+      var cs = window.parent.getComputedStyle(pdoc.body);
+      font = cs.fontFamily;
+      fs = materialVar(pdoc, '--std-font-size') || cs.fontSize;
+    } catch (e) { /* ignorisi */ }
+    if (font) setVar('--font', font);
+    if (/^[0-9.]+px$/.test(fs)) setVar('--font-size', fs);
+  }
+
   // ---------- JSON-RPC ----------
 
   function rpc(player, params) {
@@ -138,19 +226,25 @@
   function renderPlayers() {
     var sel = $('player');
     var cur = sel.value || store(PLAYER_KEY);
-    if (!changed('players', state.players)) return;
+    var list = state.players;
+    if (FIXED_PLAYER) {    // otvoreno iz Materiala (?player=): taj plejer, bez izbora
+      var known = list.filter(function (p) { return p.id === FIXED_PLAYER; })[0];
+      list = [{ id: FIXED_PLAYER, name: known ? known.name : FIXED_PLAYER }];
+      cur = FIXED_PLAYER;
+    }
+    if (!changed('players', list)) return;
     clear(sel);
-    if (!state.players.length) {
+    if (!list.length) {
       var o = el('option', null, t('UI_NO_PLAYERS'));
       o.value = '';
       sel.appendChild(o);
     }
-    state.players.forEach(function (p) {
+    list.forEach(function (p) {
       var o = el('option', null, p.name);
       o.value = p.id;
       sel.appendChild(o);
     });
-    if (state.players.some(function (p) { return p.id === cur; })) sel.value = cur;
+    if (list.some(function (p) { return p.id === cur; })) sel.value = cur;
     setButtons();
   }
 
@@ -470,7 +564,7 @@
   function play(n) {
     var pid = $('player').value;
     if (!pid) { say(errText('no_player'), 'err'); return; }
-    store(PLAYER_KEY, pid);
+    if (!FIXED_PLAYER) store(PLAYER_KEY, pid);
     var name = $('player').options[$('player').selectedIndex].text;
     var track = n || 1;
     run(function () { return cmd('play', 'player:' + pid, 'track:' + track); }, null).then(function (res) {
@@ -581,7 +675,21 @@
 
   function init() {
     setStaticText();
-    $('player').addEventListener('change', function () { store(PLAYER_KEY, $('player').value); setButtons(); });
+    adoptMaterial();
+    window.addEventListener('load', adoptMaterial);    // Material kopira svoje promenljive tek posle ucitavanja
+    if (FIXED_PLAYER) {
+      $('player').closest('.player-pick').hidden = true;
+      renderPlayers();
+    }
+    // Settings: samo novi tab. Material hvata klikove na veze u iframe-u i vodi iframe na njih,
+    // pa u iframe-u zaustavljamo klik pre njegovog handlera i otvaramo tab sami.
+    $('settings-link').addEventListener('click', function (ev) {
+      if (!parentDoc()) return;    // klasicni web: obicna veza (target=_blank)
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.open($('settings-link').href, '_blank', 'noopener');
+    });
+    $('player').addEventListener('change', function () { if (!FIXED_PLAYER) store(PLAYER_KEY, $('player').value); setButtons(); });
     $('release').addEventListener('change', function () {
       run(function () { return cmd('select_release', 'index:' + $('release').value); });
     });
