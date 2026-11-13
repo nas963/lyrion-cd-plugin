@@ -633,3 +633,7 @@ PLUGIN_AUDIOCD_MENU_RIP
 PLUGIN_AUDIOCD_MENU_PLAYING
 	EN	Playing the disc.
 	SR	Disk svira.
+
+PLUGIN_AUDIOCD_MENU_TRACKS
+	EN	%s tracks
+	SR	%s pesama

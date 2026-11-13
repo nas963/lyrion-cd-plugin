@@ -59,41 +59,45 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 # ---------- ima disk ----------
 {
 	my $r = feed($ready);
-	is $r->{name}, 'Pink Floyd – The Wall', 'naslov: Izvodjac – Album';
+	is $r->{name}, 'PLUGIN_AUDIOCD', 'naslov korena: Audio CD';
 	my @it = @{ $r->{items} };
-	is scalar(@it), 3 + 3, '3 audio pesme + pusti sve + rip + izbaci (data pesma se preskace)';
+	is scalar(@it), 3, 'disk + rip + izbaci (nema "Pusti sve")';
+	my $d = $it[0];
+	is $d->{name}, 'Pink Floyd – The Wall', 'disk: Izvodjac - Album';
+	is $d->{type}, 'playlist', 'disk je playlist stavka (Material: zaglavlje dobija Play/Add)';
+	is $d->{line2}, 'PLUGIN_AUDIOCD_MENU_TRACKS(3)', 'podnaslov: broj pesama';
+	is $d->{image}, "plugins/AudioCD/cover/cd.$id.jpg", 'omot diska preko rute plugina';
+	is_deeply $d->{itemActions}{play}{command}, [ 'audiocd', 'play' ], 'Play diska ide preko audiocd play (kes)';
+	is_deeply $d->{itemActions}{play}{fixedParams}, { track => 1 }, 'Play diska od prve pesme';
+	is_deeply $d->{itemActions}{items}{command}, [ 'browselibrary', 'items' ], 'otvaranje diska: browselibrary items';
+	is_deeply $d->{itemActions}{items}{fixedParams}, { mode => 'audiocd', item_id => '0' }, 'otvaranje diska: prva stavka korena';
+	ok !exists $d->{itemActions}{add}, 'Add je podrazumevani (playlist add svih pesama stavke)';
+	ok !exists $d->{url}, 'disk nema url (ne dodaje se kao jedna pesma)';
 
-	my @tr = @it[0 .. 2];
+	my @tr = @{ $d->{items} };
+	is scalar(@tr), 3, '3 audio pesme (data pesma se preskace)';
 	is_deeply [ map { $_->{url} } @tr ], [ "audiocd://$id/1", "audiocd://$id/2", "audiocd://$id/4" ], 'url pesama audiocd://<discid>/<n>';
 	is_deeply [ map { $_->{type} } @tr ], [ ('audio') x 3 ], 'type audio';
 	is $tr[0]{name}, '1. In the Flesh?', 'naziv pesme sa rednim brojem';
-	is $tr[0]{image}, "plugins/AudioCD/cover/cd.$id.jpg", 'omot preko rute plugina';
+	is $tr[0]{image}, "plugins/AudioCD/cover/cd.$id.jpg", 'omot pesme';
 	is $tr[1]{line2}, 'Pink Floyd', 'izvodjac diska kad pesma nema svog';
 	is $tr[2]{line2}, 'Gilmour', 'izvodjac pesme';
 	is $tr[0]{secs}, 199, 'trajanje';
 	my $pa = $tr[2]{itemActions}{play};
-	is_deeply $pa->{command}, [ 'audiocd', 'play' ], 'play akcija ide preko audiocd play (kes)';
-	is_deeply $pa->{fixedParams}, { track => 4 }, 'play akcija nosi redni broj';
+	is_deeply $pa->{command}, [ 'audiocd', 'play' ], 'play pesme ide preko audiocd play (kes)';
+	is_deeply $pa->{fixedParams}, { track => 4 }, 'play pesme nosi redni broj';
+	is scalar(grep { ref $_->{url} } @it), 2, 'korenske akcije (rip, izbaci) su link-ovi sa akcijom';
 
-	is $it[3]{name}, 'PLUGIN_AUDIOCD_MENU_PLAY_ALL', 'Pusti sve';
-	is $it[3]{type}, 'link', 'Pusti sve nije audio stavka (ne dupla prvu pesmu u "play all" zaglavlju)';
-	is $it[3]{url} && ref $it[3]{url}, 'CODE', 'Pusti sve je akcija';
-	@ran = ();
-	my $pa_out;
-	$it[3]{url}->('CLIENT', sub { $pa_out = shift }, {});
-	is_deeply \@ran, [ [ 'audiocd', 'play', 'track:1' ] ], 'Pusti sve startuje od prve pesme';
-	is $pa_out->{items}[0]{name}, 'PLUGIN_AUDIOCD_MENU_PLAYING', 'poruka posle Pusti sve';
-	is scalar(grep { $_->{type} eq 'audio' } @it), 3, 'samo pesme su audio';
-	is $it[4]{name}, 'PLUGIN_AUDIOCD_MENU_RIP(PLUGIN_AUDIOCD_UI_PROFILE_SECURE)', 'Ripuj (<profil>)';
-	is $it[5]{name}, 'PLUGIN_AUDIOCD_UI_EJECT', 'Izbaci';
+	is $it[1]{name}, 'PLUGIN_AUDIOCD_MENU_RIP(PLUGIN_AUDIOCD_UI_PROFILE_SECURE)', 'Ripuj (<profil>)';
+	is $it[2]{name}, 'PLUGIN_AUDIOCD_UI_EJECT', 'Izbaci';
 
 	@ran = ();
 	my $out;
-	$it[4]{url}->('CLIENT', sub { $out = shift }, {});
+	$it[1]{url}->('CLIENT', sub { $out = shift }, {});
 	is_deeply \@ran, [ [ 'audiocd', 'rip' ] ], 'Ripuj salje audiocd rip';
 	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_UI_RIP_STARTED', 'poruka o pocetku ripa';
 	@ran = ();
-	$it[5]{url}->('CLIENT', sub { $out = shift }, {});
+	$it[2]{url}->('CLIENT', sub { $out = shift }, {});
 	is_deeply \@ran, [ [ 'audiocd', 'eject' ] ], 'Izbaci salje audiocd eject';
 	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_UI_EJECTING', 'poruka o izbacivanju';
 }
@@ -102,7 +106,7 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 {
 	my $r = feed($ready, run => sub { return (undef, { error => 'drive_busy' }) });
 	my $out;
-	$r->{items}[4]{url}->('CLIENT', sub { $out = shift }, {});
+	$r->{items}[1]{url}->('CLIENT', sub { $out = shift }, {});
 	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_ERR_DRIVE_BUSY', 'greska -> poruka za kod';
 	is $out->{items}[0]{type}, 'text', 'greska je tekst';
 }
@@ -112,16 +116,17 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 	my %miss = (string => sub { my ($tok, @a) = @_; return ($tok =~ /ERR_WEIRD|UI_PROFILE_/) ? undef : @a ? "$tok(" . join(",", @a) . ")" : $tok });
 	my $r = feed($ready, %miss, run => sub { return (undef, { error => 'weird' }) });
 	my $out;
-	$r->{items}[4]{url}->('CLIENT', sub { $out = shift }, {});
+	$r->{items}[1]{url}->('CLIENT', sub { $out = shift }, {});
 	is $out->{items}[0]{name}, 'PLUGIN_AUDIOCD_ERR_UNKNOWN', 'nepoznat kod greske -> ERR_UNKNOWN';
-	is $r->{items}[4]{name}, "PLUGIN_AUDIOCD_MENU_RIP(secure)", "profil bez stringa: ispisuje se sama vrednost";
+	is $r->{items}[1]{name}, "PLUGIN_AUDIOCD_MENU_RIP(secure)", "profil bez stringa: ispisuje se sama vrednost";
 }
 
 # bez omota: genericki CD; bez izvodjaca/albuma: nepoznat album
 {
 	my $r = feed({ %$ready, cover => 0, cover_url => undef, metadata => { tracks => [ { n => 1, title => 'x' } ] }, toc => { tracks => [ { n => 1 } ] } });
 	is $r->{items}[0]{image}, 'plugins/AudioCD/cd-generic.png', 'nema omota -> genericki CD';
-	is $r->{name}, 'PLUGIN_AUDIOCD_UI_UNTITLED', 'bez metapodataka: nepoznat album';
+	is $r->{items}[0]{items}[0]{image}, 'plugins/AudioCD/cd-generic.png', 'pesma: genericki CD';
+	is $r->{items}[0]{name}, 'PLUGIN_AUDIOCD_UI_UNTITLED', 'bez metapodataka: nepoznat album';
 }
 
 # ---------- cvor za My Music ----------

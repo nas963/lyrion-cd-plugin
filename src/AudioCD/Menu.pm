@@ -1,6 +1,6 @@
 package Plugins::AudioCD::Menu;
 
-# Cvor "Audio CD" u My Music (aplikacije i Material): pesme diska, Pusti sve, Ripuj, Izbaci.
+# Cvor "Audio CD" u My Music (aplikacije i Material): disk kao stavka (Play/Add u zaglavlju), Ripuj, Izbaci.
 # feed() i node() su cisti (bez Slim::*): State snapshot i akcije dolaze spolja, pa se testiraju
 # bez LMS-a. LMS se dodiruje tek u default_run() (audiocd CLI preko executeRequest).
 
@@ -104,7 +104,7 @@ sub feed {
 	my $image = $snap->{cover} ? Plugins::AudioCD::Url::cover_url($discid) : ICON;
 	my %meta = map { ref $_ eq 'HASH' && defined $_->{n} ? ($_->{n} => $_) : () } @{ $disc->{tracks} || [] };
 
-	my @items;
+	my @tracks;
 	my @audio = map { $_->{n} } Plugins::AudioCD::DiscId::audio_tracks($snap->{toc});
 	for my $n (@audio) {
 		my $t = $meta{$n} || {};
@@ -119,21 +119,37 @@ sub feed {
 		);
 		$it{line2} = $artist if defined $artist && length $artist;
 		$it{secs}  = $t->{length} if defined $t->{length};
-		push @items, \%it;
+		push @tracks, \%it;
 	}
 
+	my $album = defined $disc->{album} && length $disc->{album} ? $disc->{album} : undef;
+	my $artist = defined $disc->{artist} && length $disc->{artist} ? $disc->{artist} : undef;
+	my $name = defined $album ? (defined $artist ? "$artist – $album" : $album) : _tr(\%o, 'PLUGIN_AUDIOCD_UI_UNTITLED');
+
+	my @items;
 	if (@audio) {
-		# link, ne audio: "play all" iz zaglavlja liste ne sme da doda prvu pesmu drugi put
-		push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_MENU_PLAY_ALL'), [ 'audiocd', 'play', "track:$audio[0]" ], 'PLUGIN_AUDIOCD_MENU_PLAYING');
+		# Disk je jedna stavka tipa playlist: Material zaglavlje otvorenog diska dobija Play/Add iz
+		# njenih akcija (a.current.actions.play), pa Play ide preko "audiocd play track:1" (celi disk,
+		# kes), a Add je podrazumevani "browselibrary playlist add" cele stavke (sve audiocd:// pesme).
+		my $sub = _tr(\%o, 'PLUGIN_AUDIOCD_MENU_TRACKS', scalar @audio);
+		$sub = "$disc->{year} · $sub" if defined $disc->{year} && length $disc->{year};
+		push @items, {
+			name        => $name,
+			line2       => $sub,
+			type        => 'playlist',
+			image       => $image,
+			items       => \@tracks,
+			itemActions => {
+				items => { command => [ 'browselibrary', 'items' ], fixedParams => { mode => 'audiocd', item_id => '0' } },
+				%{ _play_action($audio[0]) },
+			},
+		};
 	}
 	push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_MENU_RIP', _tr_or(\%o, $o{profile}, 'PLUGIN_AUDIOCD_UI_PROFILE_' . uc($o{profile}))),
 		[ 'audiocd', 'rip' ], 'PLUGIN_AUDIOCD_UI_RIP_STARTED');
 	push @items, _action(\%o, _tr(\%o, 'PLUGIN_AUDIOCD_UI_EJECT'), [ 'audiocd', 'eject' ], 'PLUGIN_AUDIOCD_UI_EJECTING');
 
-	my $album = defined $disc->{album} && length $disc->{album} ? $disc->{album} : undef;
-	my $artist = defined $disc->{artist} && length $disc->{artist} ? $disc->{artist} : undef;
-	my $name = defined $album ? (defined $artist ? "$artist – $album" : $album) : _tr(\%o, 'PLUGIN_AUDIOCD_UI_UNTITLED');
-	return $cb->({ name => $name, cover => $image, items => \@items });
+	return $cb->({ name => _tr(\%o, 'PLUGIN_AUDIOCD'), cover => $image, items => \@items });
 }
 
 1;
