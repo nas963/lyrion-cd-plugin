@@ -68,16 +68,20 @@ Folder `/var/lib/squeezeboxserver/CD-Rips/Bobby McFerrin/`. Isti disk tri puta z
   `Accurip: disc found in database (max confidence: 15)` (pesma 4: 14), pa
   `Accurip v1: <crc> (not found, either a new pressing, or bad rip)`, isto za `v2` i `450`.
   Disk JE u AccurateRip bazi, ali nijedan checksum se ne poklapa (9 od 9 `mismatch`, istorija `accurip_mismatch`).
-- Uzrok (provereno 2026-11-13): NE drugo izdanje, nego ofset citanja drajva. Rip-ovi su radjeni bez podesenog ofseta
-  (pref `driveOffset` prazan -> cyanrip `-s 0`). `cyanrip -f` na ovom drajvu (ASUS SDRW-08U7M-U, A112) je dao
+- Uzrok (provereno 2026-11-13): najverovatnije ofset citanja drajva, ne drugo izdanje. Rip-ovi su radjeni bez podesenog
+  ofseta (pref `driveOffset` prazan -> cyanrip `-s 0`). U drajvu je tada vec bio DRUGI disk (Enigma "The Cross of
+  Changes", MB disc ID N704SvqX04youSS9n7TsOOUp308-, 9 pesama, CDDB 710a5e09; korisnik ga je ubacio 2026-11-12), pa je
+  provera ofseta radjena na njemu. `cyanrip -f` na ovom drajvu (ASUS SDRW-08U7M-U, A112) je dao
   `Drive offset of +6 found (confidence: 9)` (potvrdjeno na svih 9 pesama), isto kao AccurateRip lista drajvova (+6).
-  Ponovljen rip pesama 1 i 2 sa `-s 6` (argumenti iz `Profiles::rip_argv`, profil fast, test folder van CD-Rips):
+  Rip pesama 1 i 2 tog diska sa `-s 6` (argumenti iz `Profiles::rip_argv`, profil fast, test folder van CD-Rips):
   `Accurip: disc found in database (max confidence: 200)`, `Accurip v1: ... (accurately ripped, confidence 197)`,
   `Accurip v2: ... (accurately ripped, confidence 200)` za obe pesme, `Tracks ripped accurately: 2/9` (cyanrip deli sa
   brojem pesama diska). Te linije su sada fixture `tests/fixtures/cyanrip-output-ar-match.txt` (parse_progress daje
   `match`, summary 2/9). Ofset se NE upisuje automatski: korisnik ga unosi u Settings (Ofset drajva = 6). Rip koji
   zavrsi sa svim pesmama `mismatch` dok je disk u bazi dobija u istoriji `note: check_offset` i stranica pokazuje savet.
-  Tri postojeca rip-a u CD-Rips su bit-identicna medjusobno, ali pomerena za 6 semplova (nisu dirana).
+  "The Story of Jazz" sa ofsetom +6 nije ponovo ripovan (disk nije u drajvu): 9/9 mismatch uz disk u bazi je tipican
+  znak ofseta 0 umesto +6, ali za taj disk to ostaje nepotvrdjeno. Tri postojeca rip-a u CD-Rips nisu dirana.
+  Napomena: cyanrip linija `DiscID:` u izlazu pokazuje vrednost iz `-a discid=...` (nasa oznaka), ne izracunat ID.
 - `.audiocd-tmp` ostaje prazan (samo sam folder), nema `.part` ostataka.
 - Defekt (popravljen): `.cue` u prva dva rip-a ima `FILE "var/lib/.../.audiocd-tmp/rip-.../1.flac"`; popravka je
   u commit-u "Fix: cue FILE linije ...". Treci rip ima ispravno `FILE "01 - Don't Worry Be Happy.flac"`.

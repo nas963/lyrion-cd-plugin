@@ -162,7 +162,8 @@ ok(!has_opt('-R', rip_argv(%base, profile => 'fast', release_id => 'abc')), 'rel
 	my @acc = grep { defined $_->{accurip} } @ev;
 	is_deeply([ map { $_->{accurip} } @acc ], [qw(mismatch mismatch)], 'accurip v1 i v2 linije (nije potvrdjeno)');
 }
-# Pravi izlaz cyanrip-a sa ispravnim ofsetom (+6, ASUS SDRW-08U7M-U), pesme 1-2: AccurateRip match
+# Pravi izlaz cyanrip-a sa ispravnim ofsetom (+6, ASUS SDRW-08U7M-U), pesme 1-2: AccurateRip match.
+# Disk: Enigma "The Cross of Changes" (metapodaci u -a/-t su bili lazni "AR test"; linija DiscID pokazuje nasu -a oznaku).
 {
 	open my $fh, '<:encoding(UTF-8)', 't/fixtures/cyanrip-output-ar-match.txt' or BAIL_OUT("fixture: $!");
 	my @lines = map { s/\r?\n\z//r } <$fh>;
