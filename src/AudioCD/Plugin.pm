@@ -264,14 +264,21 @@ sub _drive_procs {
 
 # Pomocni proces miruje dok drajv cita drugi proces (cd-paranoia, cyanrip, cd-info, eject) ili
 # izbacivanje jos traje; poziva se na svaku promenu posla i tajmerom (SYNC_INTERVAL).
-# Pauza je asinhrona (poruka na stdin pomocnika) i salje se tek POSLE pokretanja posla, pa u kratkom
-# prozoru (milisekunde, najvise jedan CDROM_DRIVE_STATUS/TOC ioctl) pomocnik jos moze da drzi otvoren
-# fd uredjaja dok eject / cd-paranoia / cyanrip krecu. To je bezopasno: uredjaj je otvoren sa
-# O_NONBLOCK i deljeno (ne O_EXCL), cd-paranoia/cyanrip ga samo otvaraju i citaju, a util-linux eject,
-# ako CDROMEJECT ne prodje, pada na SCSI START STOP UNIT. Ceka se, ako ista, pomocni proces, ne LMS.
+# Pauza je asinhrona (poruka na stdin pomocnika) i salje se tek POSLE pokretanja posla, i zaustavlja
+# samo polling, ne zahtev koji pomocnik vec radi. Polling (ioctl CDROM_DRIVE_STATUS) traje milisekunde,
+# ali TOC zahtev na disku koji se tek zavrce traje sekundama. Zato:
+# - izbacivanje (_eject) ceka dok pomocnik ima zahtev u toku (DriveClient::pending_count), pa alat
+#   eject ne krece usred TOC ioctl-a;
+# - cd-paranoia/cyanrip mogu da krenu dok TOC jos traje (Play tokom ponovnog citanja); to je bezopasno:
+#   uredjaj je otvoren sa O_NONBLOCK i deljeno (ne O_EXCL), svi samo citaju, a ako TOC zbog toga pukne,
+#   State zadrzava ucitan disk (obican load dok drajv radi posao).
+# Ceka se, ako ista, pomocni proces, ne LMS.
+# Prelaz pauza -> rad: State zaboravlja poslednji status drajva, pa DISC_OK koji pomocnik ponovo javi
+# posle resume cita TOC (disk je mozda zamenjen tokom posla; isti disk: load je no-op).
 sub _sync_drive {
 	return unless $DRIVE && $STATE;
-	my $busy = $STATE->drive_busy ne 'none' || $STATE->eject_pending;
+	my $busy = $STATE->drive_busy ne 'none' || $STATE->eject_pending ? 1 : 0;
+	$STATE->on_drive_resumed if $DRIVE->paused && !$busy;
 	$DRIVE->set_paused($busy);
 	return;
 }
@@ -304,22 +311,22 @@ sub _eject {
 			fallback => sub { my ($d, $cb) = @_; $DRIVE ? $DRIVE->eject($d, $cb) : $cb->(0, 'helper') });
 		_sync_drive();
 	};
-	_sync_drive();    # eject_pending: pomocnik u pauzu pre nego sto eject alat dotakne drajv
-	return $do->() unless $was_busy;
-	# Posao je upravo prekinut: eject tek kad nijedan proces vise ne drzi drajv (cd-info,
-	# cd-paranoia, cyanrip umiru asinhrono).
-	my $tries = 0;
-	my $wait;
-	$wait = sub {
-		if (_drive_procs() == 0) { undef $wait; return $do->() }
-		if (++$tries > EJECT_TRIES) {
-			undef $wait;
-			$log->warn("izbacivanje odustalo: procesi i dalje drze drajv");
-			return $finish->();
-		}
-		_timer(EJECT_DELAY, $wait);
-	};
-	_timer(EJECT_DELAY, $wait);
+	_sync_drive();    # eject_pending: pomocnik u pauzu (bez novog polling-a) pre nego sto eject alat dotakne drajv
+	# Drajv drzi proces (cd-info, cd-paranoia, cyanrip umiru asinhrono posle prekida) ili zahtev
+	# pomocniku jos traje (TOC ioctl na disku koji se zavrce zna da traje sekundama; pauza ga ne prekida).
+	my $busy = sub { _drive_procs() > 0 || ($DRIVE && $DRIVE->pending_count) ? 1 : 0 };
+	return $do->() unless $was_busy || $busy->();
+	Plugins::AudioCD::Eject::when_drive_free(
+		busy    => $busy,
+		timer   => sub { _timer(@_); return },
+		delay   => EJECT_DELAY,
+		tries   => EJECT_TRIES,
+		run     => $do,
+		give_up => sub {
+			$log->warn("izbacivanje odustalo: procesi ili zahtev pomocnika i dalje drze drajv");
+			$finish->();
+		},
+	);
 	return;
 }
 

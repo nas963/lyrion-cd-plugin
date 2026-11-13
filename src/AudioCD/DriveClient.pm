@@ -51,6 +51,10 @@ sub running { my ($self) = @_; return $self->{job} && $self->{job}->is_running ?
 sub paused  { $_[0]{paused} }
 sub pid     { my ($self) = @_; return $self->{job} ? $self->{job}->pid : undef }
 
+# Broj zahteva poslatih pomocniku koji jos cekaju odgovor (npr. TOC na disku koji se zavrce traje
+# sekundama): Plugin sa izbacivanjem ceka dok ih ima, da alat eject ne krene usred ioctl-a.
+sub pending_count { return scalar keys %{ $_[0]{pending} } }
+
 # Pid pomocnika dok proces postoji (i dok umire posle kill-a): Plugin ga ne broji u procese na drajvu.
 sub job { $_[0]{job} }
 

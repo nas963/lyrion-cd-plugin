@@ -216,12 +216,16 @@ sub _on_toc {
 	$err = 'io' if !$toc && !defined $err;
 
 	if (!$toc) {
-		if ($err =~ /^(?:helper|drive_timeout)\z/) {
-			# odgovor bez informacije o disku: sledeci DISC_OK (npr. od restartovanog pomocnika) cita ponovo
+		# odgovor bez informacije o disku: pomocnik ne radi / nije odgovorio, ili je drajv u medjuvremenu
+		# poceo posao (npr. Play dok se TOC cita), pa je TOC ioctl pukao zbog toga, ne zbog diska
+		my $no_info = $err =~ /^(?:helper|drive_timeout)\z/ ? 1 : 0;
+		my $busy = $self->drive_busy;
+		if ($no_info || $busy ne 'none') {
+			# sledeci DISC_OK (restartovan pomocnik, kraj posla) cita ponovo
 			$self->{last_drive} = 0;
-			# ucitan disk ostaje kad obican load (bez force/offline) ne uspe zbog pomocnika
+			# ucitan disk ostaje kad obican load (bez force/offline) ne uspe
 			if (!$o{force} && !$o{offline} && $self->_ready) {
-				$self->_log(warn => "TOC nije procitan ($err); disk ostaje ucitan");
+				$self->_log(warn => "TOC nije procitan ($err" . ($no_info ? '' : ", drajv zauzet: $busy") . "); disk ostaje ucitan");
 				return;
 			}
 		}
@@ -395,6 +399,15 @@ sub on_eject {
 }
 
 sub eject_pending { return $_[0]{eject_pending} ? 1 : 0 }
+
+# Pomocni proces nastavlja polling posle pauze (posao na drajvu zavrsen): promena diska tokom pauze
+# nije javljena, pa se poslednji status zaboravlja. DISC_OK koji pomocnik ponovo posalje cita TOC
+# (obican load: isti disk ostaje kakav jeste, drugi disk se ucitava).
+sub on_drive_resumed {
+	my ($self) = @_;
+	$self->{last_drive} = undef;
+	return;
+}
 
 # Komanda Eject: prekida poslove, pa izbacuje disk.
 sub eject {
@@ -633,7 +646,12 @@ sub request_play {
 sub request_cache {
 	my ($self, $discid, $n) = @_;
 	return _err('stopped') if $self->{stopped};
-	return _err('wrong_disc') unless defined $discid && defined $self->{discid} && $discid eq $self->{discid};
+	unless (defined $discid && defined $self->{discid} && $discid eq $self->{discid}) {
+		# disk se (ponovo) cita: jos se ne zna koji je (TOC u toku) -> not_ready, Waiter ponavlja;
+		# wrong_disc samo kad je drajv prazan ili je poznato da je u njemu drugi disk
+		return _err('not_ready') if defined $self->{toc_pending} || ($self->{status} eq 'reading' && !defined $self->{discid});
+		return _err('wrong_disc');
+	}
 	return _err('not_ready') unless $self->_ready;
 	return _err('bad_track') unless defined $n && $n =~ /^\d+\z/ && grep { $_ == $n } $self->_audio;
 	my ($ok, $err) = $self->_start_cache($n);

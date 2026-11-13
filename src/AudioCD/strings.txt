@@ -622,17 +622,9 @@ PLUGIN_AUDIOCD_UI_RETRY
 	EN	Try again
 	SR	Pokušaj ponovo
 
-PLUGIN_AUDIOCD_MENU_PLAY_ALL
-	EN	Play all
-	SR	Pusti sve
-
 PLUGIN_AUDIOCD_MENU_RIP
 	EN	Rip (%s)
 	SR	Ripuj (%s)
-
-PLUGIN_AUDIOCD_MENU_PLAYING
-	EN	Playing the disc.
-	SR	Disk svira.
 
 PLUGIN_AUDIOCD_MENU_TRACKS
 	EN	%s tracks

@@ -28,6 +28,9 @@ use constant COVER_PREFIX => 'plugins/AudioCD/cover/';
 use constant SIZE_SUFFIX => qr/(?:_[0-9]{1,4}x[0-9]{1,4}(?:_[a-z])?)?/;
 # isti oblik kao Cache::valid_discid: 27 znakova + '-'; nista drugo (../ je odbijeno)
 use constant COVER_RE    => qr{^plugins/AudioCD/cover/(?:cd\.)?([A-Za-z0-9._-]{27}-)@{[ SIZE_SUFFIX ]}\.jpg\z};
+# Genericki CD (cd-generic.png) je u HTML/EN/plugins/AudioCD, pa ga LMS servira sam: sa sufiksom velicine
+# (cd-generic_WxH[_m].png, kako ga trazi Material) zahtev hvata LMS-ov resizer (Slim::Web::Graphics) i daje
+# sliku iz putanje skina/plugina, a bez sufiksa ide kao staticki fajl. Ova ruta je samo rezerva.
 use constant GENERIC_RE  => qr{^plugins/AudioCD/cd-generic@{[ SIZE_SUFFIX ]}\.png\z};
 
 my $DIR = File::Basename::dirname(__FILE__);
@@ -139,7 +142,7 @@ sub init {
 	Slim::Web::Pages->addRawDownload(COVER_RE, sub { (cover_file($_[0], $cover_path))[0] },
 		sub { (cover_file($_[0], $cover_path))[1] });
 
-	# Staticki PNG van html/ LMS ne servira, pa i genericki CD ide kroz isti mehanizam
+	# Rezerva za genericki CD (vidi GENERIC_RE); obicno ga servira sam LMS (resizer ili staticki fajl)
 	Slim::Web::Pages->addRawDownload(GENERIC_RE, sub { $GENERIC }, 'image/png');
 
 	Slim::Web::Pages->addPageLinks('plugins', { PLUGIN_AUDIOCD => PAGE });

@@ -69,9 +69,23 @@ like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/
 	unlike(do { local $/; <$s> }, qr/\bioctl\s*\(|read_toc|drive_status\s*=>/, 'State.pm: nema sinhronog citanja drajva');
 }
 
+# 1.0.1 G3/G5: izbacivanje ceka i zahteve pomocnika u toku (TOC ioctl na disku koji se zavrce);
+# prelaz pauza -> rad pomocnika javlja se State-u (zamena diska tokom posla)
+{
+	open my $p, '<', "$dir/Plugin.pm" or die $!;
+	my $src = do { local $/; <$p> };
+	my ($ej) = $src =~ /(sub _eject \{.*?\n\}\n)/s;
+	like($ej // '', qr/DRIVE->pending_count/, 'Plugin::_eject ceka zahteve pomocnika (pending_count)');
+	like($ej // '', qr/Eject::when_drive_free/, 'Plugin::_eject: odlozeno preko Eject::when_drive_free');
+	my ($sd) = $src =~ /(sub _sync_drive \{.*?\n\}\n)/s;
+	like($sd // '', qr/on_drive_resumed/, 'Plugin::_sync_drive javlja resume State-u');
+}
+
 open my $strings, '<', "$dir/strings.txt" or die $!;
 my $text = do { local $/; <$strings> };
 like $text, qr/^PLUGIN_AUDIOCD\n\tEN\t/m, 'string naziva plugina';
+# 1.0.1 G7: nekorisceni stringovi menija su uklonjeni
+unlike $text, qr/^PLUGIN_AUDIOCD_MENU_(?:PLAY_ALL|PLAYING)$/m, 'nema nekoriscenih MENU_PLAY_ALL / MENU_PLAYING';
 
 my @files;
 find({ wanted => sub { push @files, $File::Find::name if /\.pm$/ }, no_chdir => 1 }, $dir);

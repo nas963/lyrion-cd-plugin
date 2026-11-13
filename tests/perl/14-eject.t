@@ -56,6 +56,31 @@ BEGIN { use_ok('Plugins::AudioCD::Eject') }
     like($warns[0], qr/nije uspelo/, 'eject_async: spawn greska se loguje');
 }
 
+# ---- when_drive_free: odlozeno izbacivanje dok drajv drzi proces ili zahtev pomocnika (TOC) ----
+{
+    ok(Plugins::AudioCD::Eject->can('when_drive_free'), 'when_drive_free postoji');
+    if (Plugins::AudioCD::Eject->can('when_drive_free')) {
+        my (@timers, $runs, $gaveup);
+        my @busy = (1, 1, 0);
+        my %o = (busy => sub { shift @busy }, timer => sub { push @timers, [@_] }, delay => 1.5, tries => 5,
+            run => sub { $runs++ }, give_up => sub { $gaveup++ });
+        Plugins::AudioCD::Eject::when_drive_free(%o);
+        is(scalar @timers, 1, 'when_drive_free: prva provera posle pauze');
+        is($timers[0][0], 1.5, 'when_drive_free: pauza delay');
+        $timers[-1][1]->() for 1 .. 3;
+        is($runs, 1, 'when_drive_free: run kad drajv slobodan');
+        ok(!$gaveup, 'when_drive_free: bez odustajanja');
+        is(scalar @timers, 3, 'when_drive_free: bez novih provera posle run-a');
+
+        (@timers, $runs, $gaveup) = ();
+        %o = (%o, busy => sub { 1 }, tries => 3);
+        Plugins::AudioCD::Eject::when_drive_free(%o);
+        $timers[-1][1]->() for 1 .. 4;
+        ok(!$runs, 'when_drive_free: zauzet drajv: nema run-a');
+        is($gaveup, 1, 'when_drive_free: odustaje posle tries pokusaja');
+    }
+}
+
 # Drive.pm (ioctl biblioteka) se ne koristi u LMS procesu za izbacivanje
 ok(!Plugins::AudioCD::Eject->can('ioctl'), 'Eject ne radi ioctl');
 ok(!$INC{'Plugins/AudioCD/Drive.pm'}, 'Eject ne ucitava Drive.pm');

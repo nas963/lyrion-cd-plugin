@@ -58,4 +58,21 @@ sub eject_async {
 	return;
 }
 
+# when_drive_free(busy => sub -> 0|1, timer => sub($s, $cb), delay => $s, tries => N,
+#                 run => sub, give_up => sub)
+# Odlozeno izbacivanje: provera na svakih $delay s (prva posle pauze, jer prekinuti procesi umiru
+# asinhrono); run kad drajv vise niko ne drzi (procesi, zahtev pomocnika u toku), give_up posle tries.
+sub when_drive_free {
+	my (%o) = @_;
+	my $tries = 0;
+	my $wait;
+	$wait = sub {
+		unless ($o{busy}->()) { undef $wait; return $o{run}->() }
+		if (++$tries > $o{tries}) { undef $wait; return $o{give_up}->() }
+		$o{timer}->($o{delay}, $wait);
+	};
+	$o{timer}->($o{delay}, $wait);
+	return;
+}
+
 1;

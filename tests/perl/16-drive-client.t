@@ -206,6 +206,29 @@ sub fire { my ($w, $secs) = @_; my @t = grep { !$_->{cancelled} && !$_->{fired} 
 	is_deeply($got[-1], [ undef, 'helper' ], 'posle stop-a: zahtev -> helper');
 }
 
+# ---- pending_count: zahtevi u toku (Plugin ceka sa izbacivanjem dok TOC ioctl traje) ----
+{
+	my $w = mk();
+	my $c = $w->{c};
+	ok($c->can('pending_count'), 'pending_count postoji');
+	my $pc = sub { $c->can('pending_count') ? $c->pending_count : -1 };
+	is($pc->(), 0, 'pending_count: 0 pre zahteva');
+	$c->start;
+	$c->request_toc('/dev/sr0', sub { });
+	$c->request_status('/dev/sr0', sub { });
+	is($pc->(), 2, 'pending_count: dva zahteva u toku');
+	my @ids = map { $_->{id} } job($w)->cmds;
+	job($w)->line({ ev => 'toc', id => $ids[0], toc => undef, err => 'no_disc' });
+	is($pc->(), 1, 'pending_count: posle odgovora');
+	fire($w, 45);
+	is($pc->(), 0, 'pending_count: posle roka');
+	$c->request_toc('/dev/sr0', sub { });
+	job($w)->die_now(1);
+	is($pc->(), 0, 'pending_count: pomocnik umro -> 0');
+	$c->request_toc('/dev/sr0', sub { });    # pomocnik ne radi: odmah 'helper', nista ne ceka
+	is($pc->(), 0, 'pending_count: zahtev bez pomocnika ne ceka');
+}
+
 # ---- izuzetak u callback-u ne obara klijenta ----
 {
 	my $w = mk();

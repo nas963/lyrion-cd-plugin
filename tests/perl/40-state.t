@@ -1299,4 +1299,88 @@ sub loaded {
 	ok(!$w->{cache}{starts}[-1]{opt}{resume}, 'Play: bez resume');
 }
 
+{
+	# G2: spreman disk, obican load, posao na drajvu pocne dok TOC putuje -> TOC greska (io) ne izbacuje disk
+	my $w = loaded();
+	$w->{async} = 1;
+	my $st = $w->{state};
+	$st->on_load;
+	$st->request_play('aa:bb', 1);    # kes krece (drajv zauzet) dok se TOC jos cita
+	is($st->drive_busy, 'cache', 'G2: drajv zauzet kesom');
+	$w->{toc_cbs}[0]->(undef, 'io');
+	is($st->snapshot->{status}, 'ready', 'G2: io greska tokom posla: disk ostaje ready');
+	is($st->snapshot->{discid}, $ID, 'G2: discid ostaje');
+	is($w->{cache}{stops}, 0, 'G2: kes nije zaustavljen');
+	# force load i dalje prikazuje gresku
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load(force => 1);
+	$w->{cache}{busy} = 1;    # posao na drajvu, ali force load: greska se prikazuje
+	$w->{toc_cbs}[0]->(undef, 'io');
+	is($st->snapshot->{status}, 'error', 'G2: force + io: error');
+	# bez posla na drajvu: io greska na spremnom disku i dalje vazi (disk vise nije citljiv)
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load;
+	$w->{toc_cbs}[0]->(undef, 'io');
+	is($st->snapshot->{status}, 'error', 'G2: io bez posla na drajvu: error');
+}
+
+{
+	# G4: ponovo ubacen disk se jos cita -> request_cache vraca not_ready (Waiter ponavlja), ne wrong_disc
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->eject;
+	$w->{eject_done}->();
+	$w->{async} = 1;
+	$st->on_drive_status(4, undef);    # disk vracen: TOC zahtev u toku
+	is($st->snapshot->{status}, 'reading', 'G4: ponovno citanje: reading');
+	my ($ok, $err) = $st->request_cache($ID, 1);
+	is($err->{error}, 'not_ready', 'G4: TOC u toku -> not_ready');
+	# TOC stigao, a u drajvu je DRUGI disk (lookup jos traje): wrong_disc
+	$w->{toc_cbs}[0]->($TOC2, undef);
+	is($st->snapshot->{status}, 'reading', 'G4: drugi disk, lookup u toku');
+	($ok, $err) = $st->request_cache($ID, 1);
+	is($err->{error}, 'wrong_disc', 'G4: poznat drugi disk -> wrong_disc');
+}
+
+{
+	# G5: zamena diska skrivena pauzom pomocnika: posle resume ponovljen DISC_OK cita disk (obican load)
+	my $w = world();
+	my $st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$w->{lookup}->last_cb->(mkresult());
+	is($st->snapshot->{status}, 'ready', 'G5: disk spreman');
+	my $r0 = $w->{reads};
+	# posao na drajvu (pomocnik u pauzi), za to vreme disk zamenjen; status se ne javlja
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{busy} = 0;    # kes zavrsio (npr. greska jer je disk izvadjen)
+	$w->{toc} = $TOC2;
+	$st->on_drive_resumed if $st->can('on_drive_resumed');
+	$st->on_drive_status(4, undef);    # pomocnik posle resume ponovo salje status (bez promene)
+	is($w->{reads}, $r0 + 1, 'G5: DISC_OK posle resume -> TOC zahtev');
+	isnt($st->snapshot->{discid}, $ID, 'G5: novi disk ucitan');
+
+	# isti disk: load je no-op (stanje, lookup i kes ostaju)
+	$w = world();
+	$st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$w->{lookup}->last_cb->(mkresult());
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{busy} = 0;
+	my $l0 = @{ $w->{lookup}{calls} };
+	$st->on_drive_resumed if $st->can('on_drive_resumed');
+	$st->on_drive_status(4, undef);
+	is($st->snapshot->{status}, 'ready', 'G5: isti disk posle resume: ready');
+	is(scalar @{ $w->{lookup}{calls} }, $l0, 'G5: isti disk: bez novog lookup-a');
+	is($w->{cache}{clears}, 0, 'G5: isti disk: kes se ne brise');
+	is($w->{cache}{stops}, 0, 'G5: isti disk: kes se ne zaustavlja');
+	# bez resume (polling, isti status) nema novog citanja
+	my $r1 = $w->{reads};
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, $r1, 'G5: ponovljen DISC_OK bez resume: bez citanja');
+}
+
 done_testing;
