@@ -71,10 +71,10 @@ sub mkresult {
 # ---- lazni Cache ----
 {
 	package FakeCache;
-	sub new { bless { discid => undef, done => {}, busy => 0, starts => [], stops => 0, clears => 0 }, shift }
+	sub new { bless { discid => undef, done => {}, failed => {}, busy => 0, starts => [], stops => 0, clears => 0, forgets => 0 }, shift }
 	sub start {
-		my ($s, $disc, $toc, $n) = @_;
-		push @{ $s->{starts} }, { disc => $disc, toc => $toc, n => $n };
+		my ($s, $disc, $toc, $n, %o) = @_;
+		push @{ $s->{starts} }, { disc => $disc, toc => $toc, n => $n, opt => {%o} };
 		return 0 if $s->{fail};
 		if (!defined $s->{discid} || $s->{discid} ne $disc->{discid}) { $s->{done} = {} }
 		$s->{discid} = $disc->{discid};
@@ -86,10 +86,11 @@ sub mkresult {
 	sub clear  { my $s = shift; $s->{clears}++; $s->{busy} = 0; $s->{discid} = undef; $s->{done} = {}; $s->{started} = 0 }
 	sub busy   { $_[0]{busy} }
 	sub resumable { my ($s, $id) = @_; return defined $s->{discid} && $s->{discid} eq $id && $s->{started} && !$s->{busy} && !$s->{complete} ? 1 : 0 }
+	sub forget_failed { my $s = shift; $s->{forgets}++; $s->{failed} = {} }
 	sub last_error { $_[0]{fail} }
 	sub discid { $_[0]{discid} }
 	sub ready  { my ($s, $n) = @_; $s->{done}{$n} ? 1 : 0 }
-	sub status { my $s = shift; { done => [ sort { $a <=> $b } keys %{ $s->{done} } ], failed => [], current => undef, percent => 0 } }
+	sub status { my $s = shift; { done => [ sort { $a <=> $b } keys %{ $s->{done} } ], failed => [ sort { $a <=> $b } keys %{ $s->{failed} } ], current => undef, percent => 0 } }
 	sub complete_all { my ($s, $n) = @_; $s->{done} = { map { $_ => 1 } 1 .. $n }; $s->{busy} = 0; $s->{complete} = 1 }
 }
 
@@ -146,7 +147,14 @@ sub world {
 	$w->{meta} = Plugins::AudioCD::MetaCache->new(dir => "$w->{dir}/meta");
 	$w->{state} = $S->new(
 		pref        => sub { $w->{prefs}{ $_[0] } },
-		read_toc    => sub { $w->{reads}++; return $w->{toc_err} ? (undef, $w->{toc_err}) : ($w->{toc}, undef) },
+		# asinhroni drajv (pomocni proces): bez $w->{async} odgovor stize odmah (sinhrono),
+		# sa njim se callback-ovi cuvaju u toc_cbs / status_cbs i test ih zove kad hoce
+		request_toc => sub {
+			my ($dev, $cb) = @_;
+			$w->{reads}++;
+			return push @{ $w->{toc_cbs} }, $cb if $w->{async};
+			return $w->{toc_err} ? $cb->(undef, $w->{toc_err}) : $cb->($w->{toc}, undef);
+		},
 		lookup      => $w->{lookup},
 		metacache   => $w->{meta},
 		cache       => $w->{cache},
@@ -159,7 +167,12 @@ sub world {
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
 		kill_all    => sub { $w->{kills}++; push @{ $w->{ripper}{order} }, 'kill_all' },
-		drive_status => sub { $w->{drive_calls}++; @{ $w->{drive} } },
+		request_status => sub {
+			my ($dev, $cb) = @_;
+			$w->{drive_calls}++;
+			return push @{ $w->{status_cbs} }, $cb if $w->{async};
+			$cb->(@{ $w->{drive} });
+		},
 		lookup_busy => sub { $w->{cdinfo} },
 		drive_procs => sub { $w->{procs} },
 		kill_lookup => sub { $w->{lookup_kills}++ },    # asinhrono: proces jos zivi
@@ -1028,6 +1041,196 @@ sub loaded {
 	is(scalar @{ $w->{plays} }, 0, 'plejer nije dirnut');
 	($ok, $err) = $w->{state}->request_cache($ID, 1);
 	is($err->{error}, 'cache_no_space', 'request_cache: cache_no_space');
+}
+
+# ---------- 1.0.1: drajv u zasebnom procesu, TOC i status stizu asinhrono ----------
+{
+	# load odmah odgovara (started), stanje 'reading'; rezultat stize kasnije
+	my $w = world();
+	$w->{async} = 1;
+	my $st = $w->{state};
+	my ($ok, $err, $what) = $st->on_load;
+	ok($ok, 'async load: ok');
+	is($what, 'started', 'async load: started');
+	is($st->snapshot->{status}, 'reading', 'async load: odmah reading');
+	is(scalar @{ $w->{toc_cbs} }, 1, 'async load: jedan TOC zahtev');
+	is(scalar @{ $w->{lookup}{calls} }, 0, 'async load: lookup tek posle TOC-a');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is($st->snapshot->{discid}, $ID, 'TOC stigao: discid');
+	is(scalar @{ $w->{lookup}{calls} }, 1, 'TOC stigao: lookup');
+
+	# zakasneli TOC zamenjenog zahteva se ignorise
+	$w = world();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load;
+	$st->on_load(force => 1);
+	is(scalar @{ $w->{toc_cbs} }, 2, 'dva TOC zahteva');
+	$w->{toc_cbs}[1]->($TOC2, undef);
+	my $id2 = $st->snapshot->{discid};
+	ok(defined $id2 && $id2 ne $ID, 'noviji zahtev primenjen');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is($st->snapshot->{discid}, $id2, 'zakasneli TOC starog zahteva ignorisan');
+	is(scalar @{ $w->{lookup}{calls} }, 1, 'zakasneli TOC: nema drugog lookup-a');
+	$w->{toc_cbs}[1]->($TOC, undef);
+	is(scalar @{ $w->{lookup}{calls} }, 1, 'ponovljen odgovor istog zahteva ignorisan');
+
+	# izbacivanje dok TOC putuje: rezultat se ignorise
+	$w = world();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load;
+	$st->on_eject;
+	is($st->snapshot->{status}, 'empty', 'eject dok se cita TOC: empty');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is($st->snapshot->{status}, 'empty', 'TOC posle eject-a ignorisan');
+	ok(!defined $st->snapshot->{discid}, 'TOC posle eject-a: nema discid');
+
+	# polling: fioka otvorena dok TOC putuje -> empty, TOC se ignorise
+	$w = world();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_drive_status(4, undef);
+	is($st->snapshot->{status}, 'reading', 'DISC_OK: citanje');
+	$st->on_drive_status(2, undef);
+	is($st->snapshot->{status}, 'empty', 'fioka otvorena dok se cita: empty');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is($st->snapshot->{status}, 'empty', 'zakasneli TOC posle otvorene fioke ignorisan');
+
+	# zauzet drajv: nema TOC zahteva
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	($ok, $err) = $st->on_load(force => 1);
+	is($err->{error}, 'drive_busy', 'busy: load odbijen');
+	ok(!$w->{toc_cbs}, 'busy: TOC zahtev se ne salje');
+
+	# offline load: lookup dobija offline kad TOC stigne
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	($ok, $err, $what) = $st->on_load(offline => 1);
+	is($what, 'started', 'offline: started');
+	is($st->snapshot->{status}, 'reading', 'offline: odmah reading');
+	ok(!$st->_ready, 'offline: disk nije spreman dok se cita');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is(scalar @{ $w->{lookup}{calls} }, 2, 'offline: novi lookup');
+	ok($w->{lookup}{calls}[-1]{opt}{offline}, 'offline: lookup offline');
+
+	# force load istog diska: novi lookup
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load(force => 1);
+	is($st->snapshot->{status}, 'reading', 'force: odmah reading');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is(scalar @{ $w->{lookup}{calls} }, 2, 'force: novi lookup');
+	is($st->snapshot->{discid}, $ID, 'force: isti disk');
+
+	# load bez force-a na spremnom disku: stanje ostaje ready dok TOC putuje, isti disk -> nista
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_load;
+	is($st->snapshot->{status}, 'ready', 'load bez force-a: ready dok se cita TOC');
+	$w->{toc_cbs}[0]->($TOC, undef);
+	is($st->snapshot->{status}, 'ready', 'isti disk: ready');
+	is(scalar @{ $w->{lookup}{calls} }, 1, 'isti disk: nema novog lookup-a');
+
+	# pomocnik ne radi: greska 'helper', drajv nije "prazan"
+	$w = world(toc_err => 'helper');
+	$w->{state}->on_load;
+	is($w->{state}->snapshot->{status}, 'error', 'helper greska -> error');
+	is($w->{state}->snapshot->{errors}[0]{code}, 'helper', 'helper greska: kod');
+	# izuzetak u request_toc: io greska, bez visenja u 'reading'
+	$w = world();
+	$w->{state}{d}{request_toc} = sub { die "puklo\n" };
+	$w->{state}->on_load;
+	is($w->{state}->snapshot->{status}, 'error', 'request_toc puca: error');
+}
+
+{
+	# status bez informacije (pomocnik pao, rok) ne znaci da je disk izvadjen
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->on_drive_status(4, undef);
+	$st->on_drive_status(undef, 'helper');
+	is($st->snapshot->{status}, 'ready', 'helper greska u statusu: disk ostaje');
+	$st->on_drive_status(undef, 'drive_timeout');
+	is($st->snapshot->{status}, 'ready', 'drive_timeout u statusu: disk ostaje');
+
+	# eject_event asinhrono: odgovor 'checking', provera stize kasnije
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	my ($ok, $err, $what) = $st->on_eject_event;
+	is($what, 'checking', 'eject_event: provera u toku');
+	is($st->snapshot->{status}, 'ready', 'eject_event: stanje ostaje dok provera traje');
+	$w->{status_cbs}[0]->(4, undef);
+	is($st->snapshot->{status}, 'ready', 'eject_event: disk unutra -> ignorisan');
+	$st->on_eject_event;
+	$w->{status_cbs}[1]->(2, undef);
+	is($st->snapshot->{status}, 'empty', 'eject_event: nema diska -> empty');
+
+	# eject_event: posao poceo dok provera putuje -> provera se odlaze (recheck)
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->on_eject_event;
+	$st->request_play('aa:bb', 1);
+	$w->{status_cbs}[0]->(2, undef);
+	is($st->snapshot->{status}, 'ready', 'provera stigla tokom posla: bez izbacivanja');
+	$w->{cache}{busy} = 0;
+	$st->on_jobs_changed;
+	is(scalar @{ $w->{status_cbs} }, 2, 'kraj posla: nova provera');
+	$w->{status_cbs}[1]->(2, undef);
+	is($st->snapshot->{status}, 'empty', 'odlozena provera: empty');
+
+	# on_jobs_changed: najvise jedna provera u letu
+	$w = loaded();
+	$w->{async} = 1;
+	$st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$st->on_eject_event;
+	$w->{cache}{busy} = 0;
+	$st->on_jobs_changed;
+	$st->on_jobs_changed;
+	is(scalar @{ $w->{status_cbs} || [] }, 1, 'recheck: jedna provera u letu');
+	$w->{status_cbs}[0]->(undef, 'helper');
+	is($st->snapshot->{status}, 'ready', 'recheck bez informacije: disk ostaje');
+	$st->on_jobs_changed;
+	is(scalar @{ $w->{status_cbs} }, 2, 'recheck ostaje posle helper greske: nova provera');
+
+	# eject_pending je vidljiv Plugin-u (pomocnik se pauzira dok traje izbacivanje)
+	$w = loaded();
+	ok(!$w->{state}->eject_pending, 'eject_pending 0');
+	$w->{state}->eject;
+	ok($w->{state}->eject_pending, 'eject_pending 1 posle eject-a');
+	$w->{eject_done}->();
+	ok(!$w->{state}->eject_pending, 'eject_pending 0 posle izbacivanja');
+}
+
+{
+	# nastavak kesa: samo nedostajuce pesme (resume => 1), neuspele se preskacu
+	my $w = loaded();
+	my $st = $w->{state};
+	$st->request_play('aa:bb', 1);
+	$w->{cache}{done} = { 1 => 1, 3 => 1 };
+	$st->eject;
+	$w->{eject_done}->();
+	ok($w->{cache}{forgets} >= 1, 'izbacivanje: Cache::forget_failed (greske zbog izvadjenog diska)');
+	$w->{cache}{failed} = { 2 => 1 };    # npr. los sektor posle ponovnog ubacivanja
+	my $s0 = @{ $w->{cache}{starts} };
+	$st->on_drive_status(4, undef);
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{cache}{starts} }, $s0 + 1, 'nastavak pokrenut');
+	is($w->{cache}{starts}[-1]{n}, 4, 'nastavak: prva pesma koja nije gotova ni neuspela');
+	ok($w->{cache}{starts}[-1]{opt}{resume}, 'nastavak: resume => 1');
+	# eksplicitan Play: bez resume (Cache ponavlja neuspele)
+	$w->{cache}{busy} = 0;
+	$st->request_play('aa:bb', 2);
+	ok(!$w->{cache}{starts}[-1]{opt}{resume}, 'Play: bez resume');
 }
 
 done_testing;

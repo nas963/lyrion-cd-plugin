@@ -5,7 +5,7 @@ package Plugins::AudioCD::State;
 #
 # Zavisnosti (new):
 #   pref        => sub($kljuc) -> vrednost iz plugin.audiocd prefs-a        (obavezno)
-#   read_toc    => sub($dev) -> ($toc, $err)                               (obavezno)
+#   request_toc => sub($dev, $cb->($toc, $err))  TOC asinhrono (pomocni proces) (obavezno)
 #   lookup      => objekat sa ->lookup($toc, $cb, offline => 0|1)          (obavezno)
 #   metacache   => Plugins::AudioCD::MetaCache                             (obavezno)
 #   cache       => Plugins::AudioCD::Cache                                 (obavezno)
@@ -18,15 +18,17 @@ package Plugins::AudioCD::State;
 #   missing_tools => sub -> imena alata koji nedostaju
 #   notify      => sub($history_entry)       kraj ripa (kad je pref notify)
 #   kill_all    => sub                        gasenje: ubija sve procese
-#   drive_status => sub($dev) -> ($code, $err)  provera za eject_event (ioctl)
+#   request_status => sub($dev, $cb->($code, $err))  status drajva asinhrono (eject_event, recheck)
 #   lookup_busy => sub -> 0|1                 radi li cd-info (Lookup), koji drzi drajv
 #   kill_lookup => sub                        ubija cd-info (asinhrono)
 #   drive_procs => sub -> broj                zivih procesa na drajvu (i onih koji jos umiru)
 #   on_change   => sub                        stanje promenjeno
 #   log         => sub($nivo, $poruka)
 #
-# Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok je zauzet nema ioctl-a
-# (load, eject_event), jer bi ioctl na drajvu koji cita drugi proces blokirao LMS;
+# Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok je zauzet nema zahteva
+# drajvu (load, eject_event); ioctl-ovi rade u pomocnom procesu (DriveHelper), nikad u LMS-u, pa
+# TOC i status stizu asinhrono: odgovor zamenjenog zahteva (noviji load, izbacivanje) se ignorise;
+# greske 'helper' / 'drive_timeout' u statusu ne nose informaciju o disku i ne izbacuju ga;
 # Play tokom ripa samo ako je disk ceo u kesu;
 # drugi Play istog diska koristi isti kes; izbacivanje prekida sve poslove i brise stanje diska,
 # ali kes ostaje: gotove pesme se i dalje sviraju, a kes se brise tek kad se ubaci DRUGI disk
@@ -44,10 +46,11 @@ use Plugins::AudioCD::Metadata::MusicBrainz;
 use Plugins::AudioCD::Profiles;
 use Plugins::AudioCD::Ripper;
 use Plugins::AudioCD::Tools;
+use Plugins::AudioCD::Url;
 
 use constant CDS_DISC_OK => 4;
 
-my @REQUIRED = qw(pref read_toc lookup metacache cache ripper);
+my @REQUIRED = qw(pref request_toc lookup metacache cache ripper);
 my %NOOP = (
 	rips_dir      => sub { undef },
 	media_dirs    => sub { [] },
@@ -57,7 +60,7 @@ my %NOOP = (
 	missing_tools => sub { () },
 	notify        => sub { },
 	kill_all      => sub { },
-	drive_status  => sub { (undef, 'io') },
+	request_status => sub { $_[1]->(undef, 'helper') },
 	lookup_busy   => sub { 0 },
 	kill_lookup   => sub { },
 	drive_procs   => sub { 0 },
@@ -156,7 +159,8 @@ sub _drop_disc {
 	$self->_kill_lookup;
 	delete $self->{pending_autorip};
 	my $c = $self->{d}{cache};
-	eval { $c->stop; $c->clear if $o{clear_cache}; 1 } or $self->_log(warn => "kes: $@");
+	# pesme koje su pukle jer je disk izvadjen nisu "neuspele": nastavak ih izvlaci kad se disk vrati
+	eval { $c->stop; $c->forget_failed if $c->can('forget_failed'); $c->clear if $o{clear_cache}; 1 } or $self->_log(warn => "kes: $@");
 	my $r = $self->{d}{ripper};
 	if ($r->busy) { eval { $r->abort_all('ejected'); 1 } or $self->_log(warn => "rip: $@") }
 	return;
@@ -164,14 +168,42 @@ sub _drop_disc {
 
 # ---------- disk ----------
 
-# on_load(offline => 0|1, force => 0|1) -> ($ok, $err)
+# on_load(offline => 0|1, force => 0|1) -> ($ok, $err, 'started')
+# TOC se trazi od pomocnog procesa; odgovor stize kasnije (_on_toc). Stanje odmah postaje 'reading'
+# (osim za load bez force/offline na disku koji je vec ucitan: on ostaje dok TOC ne pokaze isti disk).
 sub on_load {
 	my ($self, %o) = @_;
 	return _err('stopped') if $self->{stopped};
 	return _err('eject_pending') if $self->{eject_pending};
-	# zauzet drajv: bez read_toc ioctl-a (blokirao bi LMS); disk se proverava kad posao zavrsi
+	# zauzet drajv: bez zahteva drajvu (pomocnik je pauziran); disk se proverava kad posao zavrsi
 	return _err('drive_busy', busy => $self->drive_busy) if $self->drive_busy ne 'none';
-	my ($toc, $err) = eval { $self->{d}{read_toc}->($self->_device) };
+	my $req = ++$self->{toc_seq};
+	$self->{toc_pending} = $req;
+	my %opt = (offline => $o{offline} ? 1 : 0, force => $o{force} ? 1 : 0);
+	if ($opt{force} || $opt{offline} || $self->{status} !~ /^(?:ready|reading)\z/) {
+		$self->{status} = 'reading';
+		$self->{errors} = [];
+		$self->_changed;
+	}
+	my $sent = eval {
+		$self->{d}{request_toc}->($self->_device, sub { $self->_on_toc($req, \%opt, @_) });
+		1;
+	};
+	unless ($sent) {
+		$self->_log(warn => "TOC zahtev: $@");
+		$self->_on_toc($req, \%opt, undef, 'io');
+	}
+	return (1, undef, 'started');
+}
+
+# TOC (ili greska) od pomocnog procesa za zahtev $req; zastareo zahtev se ignorise.
+sub _on_toc {
+	my ($self, $req, $opt, $toc, $err) = @_;
+	return if $self->{stopped} || !defined $self->{toc_pending} || $self->{toc_pending} != $req;
+	delete $self->{toc_pending};
+	return if $self->{eject_pending};
+	my %o = %$opt;
+	$toc = undef unless ref $toc eq 'HASH';
 	$err = 'io' if !$toc && !defined $err;
 
 	if (!$toc) {
@@ -179,7 +211,7 @@ sub on_load {
 		$self->{gen}++;
 		$self->_reset($err eq 'no_disc' ? 'empty' : 'error', { code => $err });
 		$self->_changed;
-		return _err($err);
+		return;
 	}
 	my @audio = Plugins::AudioCD::DiscId::audio_tracks($toc);
 	if (!@audio) {
@@ -187,12 +219,12 @@ sub on_load {
 		$self->{gen}++;
 		$self->_reset('empty', { code => 'no_audio' });
 		$self->_changed;
-		return _err('no_audio');
+		return;
 	}
 
 	my $id = Plugins::AudioCD::DiscId::musicbrainz_id($toc);
 	my $same = defined $self->{discid} && $self->{discid} eq $id;
-	return (1, undef) if $same && !$o{force} && !$o{offline} && $self->{status} =~ /^(?:reading|ready)\z/;
+	return if $same && !$o{force} && !$o{offline} && $self->{status} =~ /^(?:reading|ready)\z/;
 
 	$self->_drop_disc(clear_cache => 1) if defined $self->{discid} && !$same;    # zamenjen disk
 	# kes izbacenog diska (State je prazan) se brise tek kad je u drajvu drugi disk
@@ -210,7 +242,7 @@ sub on_load {
 		my $cached = eval { $self->{d}{metacache}->get($id) };
 		if (ref $cached eq 'HASH' && ref $cached->{disc} eq 'HASH') {
 			$self->_apply($cached);
-			return (1, undef);
+			return;
 		}
 	}
 	$self->_changed;
@@ -231,7 +263,7 @@ sub on_load {
 		$disc->{cddbid} = $self->{cddbid};
 		$self->on_lookup_done({ discid => $id, cddbid => $self->{cddbid}, candidates => [], selected => 0, disc => $disc, cover_urls => [] }, offline => 1);
 	}
-	return (1, undef);
+	return;
 }
 
 # Rezultat Lookup-a (ili kesa). Genericki i offline rezultati se ne kesiraju; rucna izmena pobedjuje.
@@ -274,16 +306,18 @@ sub _apply {
 }
 
 # Isti disk ponovo ubacen posle izbacivanja: nastavlja izvlacenje pesama koje fale (gotove se ne diraju).
-# Ne radi ako je drajv zauzet (npr. autoRip je upravo poceo) ili je kes kompletan.
+# Ne radi ako je drajv zauzet (npr. autoRip je upravo poceo) ili je kes kompletan. Neuspele pesme
+# (npr. los sektor) se ne ponavljaju na svaki _apply: samo na eksplicitan Play/ensure te pesme.
 sub _resume_cache {
 	my ($self) = @_;
 	return if $self->{stopped} || $self->{eject_pending} || !$self->_ready;
 	my $c = $self->{d}{cache};
 	return unless $c->can('resumable') && $c->resumable($self->{discid});
 	return if $self->drive_busy ne 'none';
-	my ($first) = grep { !$c->ready($_) } $self->_audio;
+	my %failed = map { $_ => 1 } @{ $c->status->{failed} || [] };
+	my ($first) = grep { !$c->ready($_) && !$failed{$_} } $self->_audio;
 	return unless defined $first;
-	my ($ok, $err) = $self->_start_cache($first);
+	my ($ok, $err) = $self->_start_cache($first, resume => 1);
 	$self->_log(warn => 'nastavak kesa nije pokrenut: ' . ($err->{error} // '?')) unless $ok;
 	return;
 }
@@ -334,12 +368,15 @@ sub on_eject {
 	my ($self) = @_;
 	$self->_drop_disc;
 	$self->{gen}++;
+	delete $self->{toc_pending};    # TOC koji jos putuje pripada izbacenom disku
 	$self->{last_drive} = 0;    # sledeci DISC_OK ponovo cita disk
 	delete $self->{recheck};
 	$self->_reset('empty');
 	$self->_changed;
 	return (1, undef);
 }
+
+sub eject_pending { return $_[0]{eject_pending} ? 1 : 0 }
 
 # Komanda Eject: prekida poslove, pa izbacuje disk.
 sub eject {
@@ -361,26 +398,49 @@ sub eject {
 	return (1, undef);
 }
 
-# Kraj ili promena posla (Cache, Ripper, cd-info): odlozena provera eject_event-a radi i bez polling-a.
-sub on_jobs_changed {
-	my ($self) = @_;
-	return unless $self->{recheck};
-	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
-	my ($code, $err) = eval { $self->{d}{drive_status}->($self->_device) };
-	$self->on_drive_status($code, $err);
+# Status drajva od pomocnog procesa (asinhrono); izuzetak u zahtevu = odgovor bez informacije.
+sub _request_status {
+	my ($self, $cb) = @_;
+	my $sent = eval { $self->{d}{request_status}->($self->_device, $cb); 1 };
+	unless ($sent) {
+		$self->_log(warn => "status zahtev: $@");
+		$cb->(undef, 'helper');
+	}
 	return;
 }
 
-# Polling: status drajva (CDS_*) ili greska. Ne radi nista dok traje posao.
+# Kraj ili promena posla (Cache, Ripper, cd-info): odlozena provera eject_event-a radi i bez polling-a.
+# Najvise jedna provera u letu; odgovor ide kroz on_drive_status (koji ponovo proverava zauzet drajv).
+sub on_jobs_changed {
+	my ($self) = @_;
+	return unless $self->{recheck};
+	return if $self->{stopped} || $self->{eject_pending} || $self->{recheck_inflight} || $self->drive_busy ne 'none';
+	$self->{recheck_inflight} = 1;
+	$self->_request_status(sub {
+		delete $self->{recheck_inflight};
+		$self->on_drive_status(@_);
+	});
+	return;
+}
+
+# Status bez informacije o disku: pomocnik ne radi ili nije odgovorio na vreme.
+sub _no_info { my ($code, $err) = @_; return !defined $code && defined $err && $err =~ /^(?:helper|drive_timeout)\z/ ? 1 : 0 }
+
+# Ima li sta da se izbaci: ucitan disk ili TOC koji se jos cita.
+sub _has_disc { my ($self) = @_; return defined $self->{discid} || defined $self->{toc_pending} }
+
+# Polling (dogadjaj pomocnog procesa, samo na promenu) ili odgovor na proveru: status drajva (CDS_*)
+# ili greska. Ne radi nista dok traje posao.
 sub on_drive_status {
 	my ($self, $code, $err) = @_;
 	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
+	return if _no_info($code, $err);    # recheck ostaje: proverava se ponovo kad pomocnik proradi
 	my $ok   = defined $code && $code == CDS_DISC_OK ? 1 : 0;
 	my $prev = $self->{last_drive};
 	$self->{last_drive} = $ok;
 	if (delete $self->{recheck}) {    # odlozen eject_event: posao je zavrsen, sada se proverava
 		return $self->on_load if $ok;
-		return $self->on_eject if defined $self->{discid};
+		return $self->on_eject if $self->_has_disc;
 	}
 	if ($ok) {
 		$self->on_load if !$prev && $self->_pref('autoLoad');
@@ -390,15 +450,17 @@ sub on_drive_status {
 		return if $self->{status} eq 'error';
 		$self->_drop_disc if defined $self->{discid};
 		$self->{gen}++;
+		delete $self->{toc_pending};
 		$self->_reset('error', { code => 'permission' });
 		$self->_changed;
 		return;
 	}
-	$self->on_eject if defined $self->{discid};
+	$self->on_eject if $self->_has_disc;
 	return;
 }
 
-# udev: disk izvadjen. Bez posla se proverava drajv (ioctl); tokom posla nema ioctl-a: rip sa
+# udev: disk izvadjen. Bez posla se pita pomocni proces za status (asinhrono -> 'checking', a
+# 'ignored'/'ejected' samo ako odgovor stigne odmah); tokom posla nema zahteva drajvu: rip sa
 # eject_after (cyanrip -Q sam otvara fioku) se ne prekida, a inace se provera odlaze do kraja posla
 # (disk izvadjen usred posla obara cd-paranoia/cyanrip, pa posao ionako zavrsava).
 sub on_eject_event {
@@ -414,10 +476,23 @@ sub on_eject_event {
 		$self->{recheck} = 1;
 		return (1, undef, 'deferred');
 	}
-	my ($code) = eval { $self->{d}{drive_status}->($self->_device) };
-	return (1, undef, 'ignored') if defined $code && $code == CDS_DISC_OK;
-	$self->on_eject;
-	return (1, undef, 'ejected');
+	my $what = 'checking';
+	$self->_request_status(sub {
+		my ($code, $err) = @_;
+		return if $self->{stopped};
+		if ($self->{eject_pending} || $self->drive_busy ne 'none' || _no_info($code, $err)) {
+			$self->{recheck} = 1;    # posao je poceo (ili nema odgovora): proverava se kad se drajv oslobodi
+			$what = 'deferred';
+			return;
+		}
+		if (defined $code && $code == CDS_DISC_OK) {
+			$what = 'ignored';
+			return;
+		}
+		$self->on_eject;
+		$what = 'ejected';
+	});
+	return (1, undef, $what);
 }
 
 # ---------- metapodaci ----------
@@ -502,7 +577,7 @@ sub _lookup_busy_err {
 # i za audiocd:// pesmu koja se pusta bez Play-a: rip ili proces koji jos umire -> drive_busy,
 # cd-info se ubija pa drive_busy (ponovi za trenutak); isti disk nastavlja postojeci kes.
 sub _start_cache {
-	my ($self, $n) = @_;
+	my ($self, $n, %opt) = @_;
 	return (1, undef) if $self->_cache_complete;
 	my $busy = $self->drive_busy;
 	return _err('drive_busy', busy => $busy) if $busy eq 'rip' || $busy eq 'process';
@@ -510,7 +585,7 @@ sub _start_cache {
 	my @miss = $self->_missing('cd-paranoia', 'flac');
 	return _err('missing_tools', tools => \@miss) if @miss;
 	my $c = $self->{d}{cache};
-	unless ($c->start($self->{disc}, $self->{toc}, $n + 0)) {
+	unless ($c->start($self->{disc}, $self->{toc}, $n + 0, $opt{resume} ? (resume => 1) : ())) {
 		my $e = $c->can('last_error') ? $c->last_error : undef;    # npr. { error => 'cache_no_space', needed }
 		return (undef, { %$e }) if ref $e eq 'HASH' && defined $e->{error};
 		return _err('cache_failed');
@@ -646,7 +721,7 @@ sub snapshot {
 		fuzzy         => $self->{fuzzy},
 		metadata      => $self->{disc},
 		cover         => defined $cover ? 1 : 0,
-		cover_url     => defined $cover ? "/plugins/AudioCD/cover/cd.$self->{discid}.jpg" : undef,
+		cover_url     => defined $cover ? "/" . Plugins::AudioCD::Url::cover_url($self->{discid}) : undef,
 		drive_busy    => $self->drive_busy,
 		cache         => { %$cs, discid => $self->{d}{cache}->discid },
 		rip           => $self->{d}{ripper}->status,

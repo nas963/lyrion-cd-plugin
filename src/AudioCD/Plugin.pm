@@ -1,8 +1,10 @@
 package Plugins::AudioCD::Plugin;
 
 # Veza AudioCD jedinica sa Lyrion-om: prefs, CLI komande ['audiocd', ...], audiocd:// handler,
-# Jobs backend na LMS event loop-u, polling drajva, HTTP za metapodatke i omot, obavestenja.
+# Jobs backend na LMS event loop-u, pomocni proces za drajv, HTTP za metapodatke i omot, obavestenja.
 # Pravila stanja su u State.pm (cist Perl, testiran); ovde je samo LMS sloj.
+# U LMS procesu nema ioctl-a na drajvu: status, TOC i rezervni CDROMEJECT rade u pomocnom procesu
+# audiocd-drive (DriveHelper.pm, preko DriveClient.pm), jer ioctl na disku koji se zavrce blokira sekundama.
 
 use strict;
 use warnings;
@@ -12,6 +14,7 @@ use base qw(Slim::Plugin::Base);
 use EV ();
 use Encode ();
 use File::Path ();
+use File::Spec ();
 use File::Spec::Functions qw(catdir);
 use JSON::PP ();
 use Time::HiRes ();
@@ -33,7 +36,8 @@ use Slim::Utils::Unicode;
 
 use Plugins::AudioCD::Cache;
 use Plugins::AudioCD::Config;
-use Plugins::AudioCD::Drive;
+use Plugins::AudioCD::DriveClient;
+use Plugins::AudioCD::Eject;
 use Plugins::AudioCD::Jobs;
 use Plugins::AudioCD::MaterialBridge;
 use Plugins::AudioCD::MetaCache;
@@ -46,8 +50,9 @@ use Plugins::AudioCD::Tools;
 
 our $VERSION = '0.1.0';
 
-use constant POLL_INTERVAL => 5;     # s, polling drajva (rezerva za udev)
-use constant START_DELAY   => 3;     # s, prva provera drajva posle starta
+use constant HELPER_POLL   => 2;     # s, polling drajva u pomocnom procesu (rezerva za udev)
+use constant SYNC_INTERVAL => 1;     # s, pauza pomocnika prati zauzet drajv (i odlozena provera)
+use constant START_DELAY   => 3;     # s, pokretanje pomocnika posle starta
 use constant HTTP_TIMEOUT  => 15;
 use constant EJECT_DELAY   => 1.5;   # s, posle prekida posla pa izbacivanje
 use constant RUN_CMD_LIMIT => 10;    # s, cd-info se ubija posle ovoliko (= Lookup CDTEXT_TIMEOUT)
@@ -62,10 +67,17 @@ my $log = Slim::Utils::Log->addLogCategory({
 	description  => 'PLUGIN_AUDIOCD',
 });
 
-my ($STATE, $CACHE, $RIPPER, $META, $POLL);
+my ($STATE, $CACHE, $RIPPER, $META, $DRIVE, $SYNC, $DRIVE_START);
+
+# Koren za -I pomocnog procesa: folder koji sadrzi Plugins/AudioCD.
+my $PLUGIN_ROOT = do {
+	my $f = File::Spec->rel2abs($INC{'Plugins/AudioCD/Plugin.pm'} // __FILE__);
+	$f =~ s{/Plugins/AudioCD/Plugin\.pm\z}{};
+	$f;
+};
 my %TIMERS;      # aktivni LMS tajmeri ovog plugina (gase se u shutdownPlugin)
 my %CHILD_W;     # EV child watcher-i po pid-u
-my %RUN_CMD;     # cd-info poslovi: drze drajv, pa bi ioctl (polling) blokirao LMS dok traju
+my %RUN_CMD;     # cd-info poslovi: drze drajv (pomocni proces je tada u pauzi)
 my (%MOVING, %MOVING_JOB, %MOVE_STATE);    # premestanja u biblioteku u toku (po id-u rip-a), njihovi cp poslovi i ishod (moving / last_error / warning)
 use constant MOVE_LIMIT => 1800;    # s, cp se ubija posle ovoliko
 
@@ -154,7 +166,7 @@ sub _http_get {
 # Lookup run_cmd: cd-info preko Jobs-a. Lookup vec dodaje nice/ionice (Ruling 12); ovde se samo
 # /usr/bin/cd-info zamenjuje alatom iz Tools::find (Ruling 11). Izlaz se vraca kao UTF-8 bajtovi.
 # cd-info na disku bez CD-Text-a zna da radi i par minuta i sve vreme drzi drajv: ubija se posle
-# RUN_CMD_LIMIT s, a polling ne dira drajv dok radi (ioctl bi blokirao LMS).
+# RUN_CMD_LIMIT s, a pomocni proces miruje (pauza) dok cd-info drzi drajv.
 sub _run_cmd {
 	my ($argv, $cb) = @_;
 	my @a = @$argv;
@@ -176,6 +188,7 @@ sub _run_cmd {
 	);
 	$pid = $job->pid;
 	$RUN_CMD{$pid} = $job;
+	_sync_drive();
 	_timer(RUN_CMD_LIMIT, sub { $job->kill if $job->is_running });
 	return;
 }
@@ -242,26 +255,54 @@ sub _play {
 }
 
 # Zivi procesi koji mogu da drze drajv (cd-info, cd-paranoia, cyanrip, eject, i oni koji jos
-# umiru posle kill-a); premestanja u biblioteku (cp) ne diraju drajv.
+# umiru posle kill-a); premestanja u biblioteku (cp) i pomocni proces za drajv se ne racunaju.
 sub _drive_procs {
-	my $n = Plugins::AudioCD::Jobs::running_count() - scalar(keys %MOVING_JOB);
+	my $helper = $DRIVE && $DRIVE->job && $DRIVE->job->is_running ? 1 : 0;
+	my $n = Plugins::AudioCD::Jobs::running_count() - scalar(keys %MOVING_JOB) - $helper;
 	return $n > 0 ? $n : 0;
 }
 
-# Izbacivanje: alat `eject` preko Jobs-a (USB slim drajvovi ignorisu CDROMEJECT ioctl); ioctl samo
-# ako alata nema (Drive::eject_async).
+# Pomocni proces miruje dok drajv cita drugi proces (cd-paranoia, cyanrip, cd-info, eject) ili
+# izbacivanje jos traje; poziva se na svaku promenu posla i tajmerom (SYNC_INTERVAL).
+sub _sync_drive {
+	return unless $DRIVE && $STATE;
+	my $busy = $STATE->drive_busy ne 'none' || $STATE->eject_pending;
+	$DRIVE->set_paused($busy);
+	return;
+}
+
+sub _sync_tick {
+	_sync_drive();
+	eval { $STATE->on_jobs_changed if $STATE; 1 } or $log->error("odlozena provera: $@");    # npr. kraj eject alata
+	$SYNC = _timer(SYNC_INTERVAL, \&_sync_tick);
+	return;
+}
+
+sub _helper_argv {
+	my ($paused) = @_;
+	my $perl = defined $^X && -x $^X ? $^X : '/usr/bin/perl';
+	return [ Plugins::AudioCD::Jobs::low_prio($perl, '-I', $PLUGIN_ROOT, '-MPlugins::AudioCD::DriveHelper',
+		'-e', 'Plugins::AudioCD::DriveHelper::main()', '--',
+		'--dev', _device(), '--poll', ($prefs->get('polling') ? HELPER_POLL : 0), ($paused ? '--paused' : ())) ];
+}
+
+# Izbacivanje: alat `eject` preko Jobs-a (USB slim drajvovi ignorisu CDROMEJECT ioctl); ako alata
+# nema, CDROMEJECT radi pomocni proces (Eject::eject_async + DriveClient::eject).
 # $done->() se zove tacno jednom kad je izbacivanje pokusano ili napusteno (State: eject_pending).
 sub _eject {
 	my ($was_busy, $done) = @_;
 	my $fired = 0;
-	my $finish = sub { return if $fired++; eval { $done->() if $done; 1 } or $log->warn("eject done: $@") };
+	my $finish = sub { return if $fired++; eval { $done->() if $done; 1 } or $log->warn("eject done: $@"); _sync_drive() };
 	my $dev = _device();
 	my $do = sub {
-		Plugins::AudioCD::Drive::eject_async($dev, done => $finish, warn => sub { $log->warn($_[0]) });
+		Plugins::AudioCD::Eject::eject_async($dev, done => $finish, warn => sub { $log->warn($_[0]) },
+			fallback => sub { my ($d, $cb) = @_; $DRIVE ? $DRIVE->eject($d, $cb) : $cb->(0, 'helper') });
+		_sync_drive();
 	};
+	_sync_drive();    # eject_pending: pomocnik u pauzu pre nego sto eject alat dotakne drajv
 	return $do->() unless $was_busy;
-	# Posao je upravo prekinut: CDROMEJECT tek kad nijedan proces vise ne drzi drajv (cd-info,
-	# cd-paranoia, cyanrip umiru asinhrono), inace bi ioctl blokirao LMS.
+	# Posao je upravo prekinut: eject tek kad nijedan proces vise ne drzi drajv (cd-info,
+	# cd-paranoia, cyanrip umiru asinhrono).
 	my $tries = 0;
 	my $wait;
 	$wait = sub {
@@ -354,11 +395,11 @@ sub initPlugin {
 	-d $_ && _clear_dir($_) for @cand;
 	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, candidates => \@cand,
 		device => \&_device, secure => sub { $prefs->get('secureCache') },
-		on_change => sub { $STATE->on_jobs_changed if $STATE });
+		on_change => sub { _sync_drive(); $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(
 		history_file => catdir($base, 'history.json'),
-		on_change    => sub { return unless $STATE; $STATE->on_rip_change; $STATE->on_jobs_changed },
+		on_change    => sub { return unless $STATE; _sync_drive(); $STATE->on_rip_change; $STATE->on_jobs_changed },
 	);
 	my $n = $RIPPER->recover_interrupted(_rips_dir());
 	$log->warn("obrisano $n ostataka prekinutih rip-ova") if $n;
@@ -374,7 +415,7 @@ sub initPlugin {
 	my $last_status = '';
 	$STATE = Plugins::AudioCD::State->new(
 		pref          => sub { $prefs->get($_[0]) },
-		read_toc      => \&Plugins::AudioCD::Drive::read_toc,
+		request_toc   => sub { my ($dev, $cb) = @_; $DRIVE ? $DRIVE->request_toc($dev, $cb) : $cb->(undef, 'helper') },
 		lookup        => $lookup,
 		metacache     => $META,
 		cache         => $CACHE,
@@ -387,12 +428,13 @@ sub initPlugin {
 		missing_tools => \&_missing_tools,
 		notify        => \&_notify,
 		kill_all      => \&Plugins::AudioCD::Jobs::kill_all,
-		drive_status  => \&Plugins::AudioCD::Drive::drive_status,
+		request_status => sub { my ($dev, $cb) = @_; $DRIVE ? $DRIVE->request_status($dev, $cb) : $cb->(undef, 'helper') },
 		lookup_busy   => sub { %RUN_CMD ? 1 : 0 },
 		drive_procs   => \&_drive_procs,
 		kill_lookup   => sub { $_->kill for values %RUN_CMD },
 		log           => sub { my ($lvl, $m) = @_; $lvl eq 'warn' ? $log->warn($m) : $log->info($m) },
 		on_change     => sub {
+			_sync_drive();
 			my $s = $STATE or return;
 			return if $s->status eq $last_status;
 			$last_status = $s->status;
@@ -427,27 +469,33 @@ sub initPlugin {
 	);
 	Slim::Control::Request::addDispatch([ 'audiocd', $_ ], $cmd{$_}) for keys %cmd;
 
-	# Prva provera (auto-load ako je disk unutra), pa polling.
-	$POLL = _timer(START_DELAY, sub { _poll(1) });
+	# Pomocni proces za drajv (status, TOC, rezervni CDROMEJECT): prvi status stize posle starta
+	# (auto-load ako je disk unutra), pa samo promene; LMS proces ne radi ioctl.
+	$DRIVE = Plugins::AudioCD::DriveClient->new(
+		argv         => \&_helper_argv,
+		spawn        => sub { Plugins::AudioCD::Jobs->spawn(@_) },
+		timer        => \&_timer,
+		cancel_timer => \&_cancel_timer,
+		on_status    => sub { eval { $STATE->on_drive_status(@_) if $STATE; 1 } or $log->error("status drajva: $@") },
+		log          => sub { my ($lvl, $m) = @_; $lvl eq 'warn' ? $log->warn($m) : $log->info($m) },
+	);
+	$prefs->setChange(sub {
+		return unless $DRIVE;
+		$DRIVE->configure(dev => _device(), poll => ($prefs->get('polling') ? HELPER_POLL : 0));
+	}, 'polling', 'device');
+	$DRIVE_START = _timer(START_DELAY, sub { $DRIVE->start if $DRIVE });
+	$SYNC = _timer(SYNC_INTERVAL, \&_sync_tick);
 
 	$log->info("AudioCD $VERSION: uredjaj " . _device() . ", kes $cdir, rip-ovi " . _rips_dir());
 	return;
 }
 
-sub _poll {
-	my ($first) = @_;
-	# ioctl na drajvu koji cita drugi proces (cd-info, cd-paranoia, cyanrip) blokira LMS: tada se preskace
-	if ($STATE && $STATE->drive_busy eq 'none' && ($first || $prefs->get('polling'))) {
-		my ($code, $err) = Plugins::AudioCD::Drive::drive_status(_device());
-		eval { $STATE->on_drive_status($code, $err); 1 } or $log->error("polling: $@");
-	}
-	$POLL = _timer(POLL_INTERVAL, \&_poll);
-	return;
-}
-
 sub shutdownPlugin {
 	Slim::Menu::BrowseLibrary->deregisterNode('audiocd');
-	_cancel_timer($POLL);
+	_cancel_timer($SYNC);
+	_cancel_timer($DRIVE_START);
+	$DRIVE->stop if $DRIVE;    # quit + EOF + kill pre Jobs::kill_all
+	undef $DRIVE;
 	_cancel_timer($_) for values %TIMERS;
 	%TIMERS = ();
 	$STATE->shutdown if $STATE;    # Jobs::kill_all, Cache::clear, ostaci rip-ova
@@ -482,11 +530,13 @@ sub _param {
 
 sub _cli_load {
 	my ($request) = @_;
-	my ($ok, $err) = $STATE->on_load(offline => _param($request, 'offline') ? 1 : 0, force => _param($request, 'force') ? 1 : 0);
-	_done($request, $ok, $err, status => $STATE->snapshot->{status});
+	# TOC cita pomocni proces: odgovor odmah (started), stanje 'reading', rezultat stize kasnije
+	my ($ok, $err, $what) = $STATE->on_load(offline => _param($request, 'offline') ? 1 : 0, force => _param($request, 'force') ? 1 : 0);
+	_done($request, $ok, $err, status => $STATE->snapshot->{status}, ($what // '') eq 'started' ? (started => 1) : ());
 }
 
-# udev: disk izvadjen. Pravila (ioctl samo kad je drajv slobodan, eject_after rip se ne prekida) su u State.
+# udev: disk izvadjen. Pravila (provera drajva samo kad je slobodan, asinhrono preko pomocnog procesa;
+# eject_after rip se ne prekida) su u State.
 sub _cli_eject_event {
 	my ($request) = @_;
 	my ($ok, $err, $what) = $STATE->on_eject_event;

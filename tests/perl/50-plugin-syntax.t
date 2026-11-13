@@ -48,6 +48,27 @@ like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/
 	ok($src =~ /sub media_dirs \{[^}]*utf8decode_locale/s, 'Plugin::media_dirs dekoduje (utf8decode_locale)');
 }
 
+# 1.0.1: nema ioctl-a na drajvu u LMS procesu. Drive.pm (ioctl biblioteka) koristi samo pomocni
+# proces (DriveHelper.pm); Plugin/State dobijaju status i TOC asinhrono preko DriveClient-a.
+{
+	my @users;
+	find({ wanted => sub {
+		return unless /\.pm$/;
+		open my $f, '<', $File::Find::name or die $!;
+		my $src = do { local $/; <$f> };
+		$src =~ s/^\s*#.*$//mg;    # komentari se ne racunaju
+		push @users, $File::Find::name =~ s{.*/}{}r if $src =~ /Plugins::AudioCD::Drive(?:::|;|\b(?!Helper|Client))/;
+	}, no_chdir => 1 }, $dir);
+	is_deeply([ sort @users ], [ 'Drive.pm', 'DriveHelper.pm' ], 'Drive.pm koristi samo pomocni proces (DriveHelper)') or diag "@users";
+	open my $p, '<', "$dir/Plugin.pm" or die $!;
+	my $src = do { local $/; <$p> };
+	like($src, qr/request_toc\s*=>.*DRIVE->request_toc/, 'Plugin: TOC preko pomocnog procesa');
+	like($src, qr/stdin|DriveClient->new/, 'Plugin: pokrece DriveClient');
+	unlike($src, qr/\bioctl\s*\(/, 'Plugin.pm: nema ioctl poziva');
+	open my $s, '<', "$dir/State.pm" or die $!;
+	unlike(do { local $/; <$s> }, qr/\bioctl\s*\(|read_toc|drive_status\s*=>/, 'State.pm: nema sinhronog citanja drajva');
+}
+
 open my $strings, '<', "$dir/strings.txt" or die $!;
 my $text = do { local $/; <$strings> };
 like $text, qr/^PLUGIN_AUDIOCD\n\tEN\t/m, 'string naziva plugina';
