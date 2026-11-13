@@ -3,6 +3,7 @@ use warnings;
 use utf8;
 use Test::More;
 use POSIX ();
+use Time::HiRes ();
 
 use lib 'lib';
 BEGIN { use_ok('Plugins::AudioCD::Jobs') }
@@ -233,6 +234,59 @@ sub alive { my $p = shift; return kill(0, $p) && !_zombie($p) }
 	is(scalar @added, 1, 'add_read pozvan');
 	is(scalar @removed, 1, 'remove_read pozvan');
 	$J->can('set_io_backend')->($orig);
+}
+
+# ---- stdin => 'pipe': upis na stdin deteta (neblokirajuce) ----
+{
+	my (@lines, $status);
+	my $job = $J->spawn(argv => ['cat'], stdin => 'pipe', on_line => sub { push @lines, $_[0] }, on_exit => sub { $status = $_[0] });
+	push @LEFTOVER, $job->pid;
+	ok($job->write_stdin("prva\n"), 'write_stdin prihvata poruku');
+	ok($job->write_stdin("Čajkovski\n"), 'write_stdin: znakovi se salju kao UTF-8');
+	$J->can('_run_once')->(0.2) for 1 .. 3;
+	ok($job->is_running, 'cat ceka dalji ulaz (stdin otvoren)');
+	is_deeply(\@lines, [ 'prva', 'Čajkovski' ], 'dete dobija linije sa stdin-a');
+	$job->close_stdin;
+	ok($J->can('run_loop_for_tests')->(5), 'close_stdin: dete dobija EOF i izlazi');
+	is($status, 0, 'cat status 0');
+	ok(!$job->write_stdin("kasno\n"), 'write_stdin posle izlaska vraca 0');
+	@LEFTOVER = ();
+}
+{
+	# vise od kapaciteta pipe-a: ostatak se baferuje i salje kad dete cita; close_stdin ceka da se isprazni
+	my (@lines, $status);
+	my $job = $J->spawn(argv => ['sh', '-c', 'sleep 0.3; wc -c'], stdin => 'pipe',
+		on_line => sub { push @lines, $_[0] }, on_exit => sub { $status = $_[0] });
+	push @LEFTOVER, $job->pid;
+	my $t0 = Time::HiRes::time();
+	ok($job->write_stdin('x' x 300_000), 'veliki upis prihvacen');
+	ok(Time::HiRes::time() - $t0 < 0.2, 'veliki upis ne blokira');
+	$job->close_stdin;
+	ok($J->can('run_loop_for_tests')->(10), 'veliki upis: dete zavrsilo');
+	is(($lines[0] // '') =~ s/\s+//gr, '300000', 'svi bajtovi stigli');
+	@LEFTOVER = ();
+}
+{
+	# dete umrlo pre citanja: upis ne obara roditelja (EPIPE umesto SIGPIPE)
+	local $SIG{PIPE} = 'DEFAULT';
+	my $job = $J->spawn(argv => ['true'], stdin => 'pipe');
+	push @LEFTOVER, $job->pid;
+	ok($J->can('run_loop_for_tests')->(5), 'true zavrsio');
+	ok(!$job->write_stdin("x\n"), 'upis posle smrti deteta: 0, bez SIGPIPE-a');
+	# bez stdin pipe-a: stdin je /dev/null, write_stdin vraca 0
+	my ($lines, $status, $j2) = run_job(argv => ['cat']);
+	is($status, 0, 'bez pipe-a: cat odmah dobija EOF (/dev/null)');
+	ok(!$j2->write_stdin("x\n"), 'bez pipe-a: write_stdin vraca 0');
+	@LEFTOVER = ();
+}
+{
+	# kill_all zatvara i stdin pipe
+	my $job = $J->spawn(argv => ['cat'], stdin => 'pipe');
+	push @LEFTOVER, $job->pid;
+	$J->can('kill_all')->();
+	ok(!$job->write_stdin("x\n"), 'posle kill_all: write_stdin vraca 0');
+	is($J->can('running_count')->(), 0, 'kill_all: nema zivih poslova');
+	@LEFTOVER = ();
 }
 
 # ---- LMS vezuje (tie) STDOUT/STDERR za svoj logger (Slim::Utils::Log::Trapper bez OPEN) ----

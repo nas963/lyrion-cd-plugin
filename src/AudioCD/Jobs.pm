@@ -118,9 +118,12 @@ sub run_loop_for_tests {
 
 # ---------- poslovi ----------
 
-# spawn(argv => [...], on_line => sub($line), on_exit => sub($status), cwd => $dir, umask => 022) -> $job
+# spawn(argv => [...], on_line => sub($line), on_exit => sub($status), cwd => $dir, umask => 022,
+#       stdin => 'pipe') -> $job
 # $status je izlazni kod, 128+signal ako je proces ubijen signalom, a 255 ako se status ne moze
 # saznati (waitpid je vratio -1, npr. ECHILD zbog SIGCHLD=IGNORE).
+# stdin => 'pipe': stdin deteta je pipe u koji se pise sa $job->write_stdin($tekst) (neblokirajuce,
+# ostatak se baferuje), $job->close_stdin salje EOF; bez toga je stdin /dev/null.
 sub spawn {
 	my ($class, %a) = @_;
 	my @argv = @{ $a{argv} || [] };
@@ -135,11 +138,15 @@ sub spawn {
 	STDOUT->flush;    # da dete ne udvostruci neispraznjen bafer
 	STDERR->flush;
 	pipe(my $rd, my $wr) or die "pipe: $!\n";
+	my ($in_r, $in_w);
+	if (($a{stdin} // '') eq 'pipe') {
+		pipe($in_r, $in_w) or die "pipe: $!\n";    # Perl postavlja FD_CLOEXEC: drugi poslovi ga ne nasledjuju
+	}
 	my $pid = fork();
 	die "fork: $!\n" unless defined $pid;
 
 	if (!$pid) {
-		# dete: sopstvena grupa, stdin /dev/null, stdout+stderr u pipe
+		# dete: sopstvena grupa, stdin /dev/null (ili pipe), stdout+stderr u pipe
 		eval {
 			POSIX::setpgid(0, 0);
 			$SIG{PIPE} = 'DEFAULT';    # LMS moze da ih ignorise, a ignorisanje se nasledjuje kroz exec
@@ -147,7 +154,14 @@ sub spawn {
 			# LMS vezuje STDOUT/STDERR za svoj logger (tie bez OPEN): open na njima bi pukao
 			for my $h (\*STDIN, \*STDOUT, \*STDERR) { untie *$h if tied *$h }
 			close $rd;
-			open(STDIN, '<', '/dev/null');
+			if ($in_r) {
+				close $in_w;
+				open(STDIN, '<&', $in_r) or die "dup stdin: $!\n";
+				close $in_r;
+			}
+			else {
+				open(STDIN, '<', '/dev/null');
+			}
 			open(STDOUT, '>&', $wr) or die "dup stdout: $!\n";
 			open(STDERR, '>&', $wr) or die "dup stderr: $!\n";
 			close $wr;
@@ -173,7 +187,14 @@ sub spawn {
 		on_exit => $a{on_exit},
 		eof     => 0,
 		done    => 0,
+		wbuf    => '',
 	}, $class;
+	if ($in_w) {
+		close $in_r;
+		my $wfl = fcntl($in_w, F_GETFL, 0);
+		fcntl($in_w, F_SETFL, $wfl | O_NONBLOCK) if defined $wfl;
+		$job->{in} = $in_w;
+	}
 	$JOBS{$pid} = $job;
 	$be->{add_read}->($rd, sub { $job->_on_readable });
 	if ($be->{child}) {
@@ -184,6 +205,64 @@ sub spawn {
 }
 
 sub pid { $_[0]{pid} }
+
+# ---------- stdin (spawn sa stdin => 'pipe') ----------
+
+# write_stdin($tekst) -> 1 ako je prihvaceno, 0 ako pipe-a nema (zatvoren, dete mrtvo, bez stdin => 'pipe').
+# Nikad ne blokira: sto ne stane u pipe ceka u baferu i salje se tajmerom.
+sub write_stdin {
+	my ($self, $data) = @_;
+	return 0 unless $self->{in} && !$self->{in_closing} && !$self->{done};
+	$data = '' unless defined $data;
+	utf8::encode($data) if utf8::is_utf8($data);
+	$self->{wbuf} .= $data;
+	$self->_flush_stdin;
+	return $self->{in} ? 1 : 0;
+}
+
+# EOF za dete kad se bafer isprazni.
+sub close_stdin {
+	my ($self) = @_;
+	return unless $self->{in};
+	$self->{in_closing} = 1;
+	$self->_flush_stdin;
+	return;
+}
+
+sub _flush_stdin {
+	my ($self) = @_;
+	my $fh = $self->{in} or return;
+	local $SIG{PIPE} = 'IGNORE';    # dete umrlo: EPIPE umesto SIGPIPE-a koji bi oborio LMS
+	while (length $self->{wbuf}) {
+		my $n = syswrite($fh, $self->{wbuf});
+		if (!defined $n) {
+			next if $!{EINTR};
+			if ($!{EAGAIN} || $!{EWOULDBLOCK}) {
+				$self->{flush_timer} ||= _backend()->{timer}->(0.05, sub {
+					delete $self->{flush_timer};
+					$self->_flush_stdin;
+				});
+				return;
+			}
+			$self->_close_in;
+			return;
+		}
+		substr($self->{wbuf}, 0, $n, '');
+	}
+	$self->_close_in if $self->{in_closing};
+	return;
+}
+
+sub _close_in {
+	my ($self) = @_;
+	my $t = delete $self->{flush_timer};
+	my $be = _backend();
+	$be->{cancel_timer}->($t) if $t && $be->{cancel_timer};
+	my $fh = delete $self->{in} or return;
+	close $fh;
+	$self->{wbuf} = '';
+	return;
+}
 
 sub _emit {
 	my ($self, $line) = @_;
@@ -276,6 +355,7 @@ sub _finish {
 	my ($self, $status) = @_;
 	return if $self->{done}++;
 	$self->_cancel_timers;
+	$self->_close_in;
 	delete $JOBS{ $self->{pid} };
 	my $cb = delete $self->{on_exit};
 	if ($cb) { eval { $cb->($status); 1 } or warn "Jobs on_exit: $@" }
@@ -330,6 +410,7 @@ sub kill_all {
 		}
 		$j->{eof} = $j->{done} = 1;
 		$j->_cancel_timers;
+		$j->_close_in;
 		delete $JOBS{ $j->{pid} };
 	}
 	return;
