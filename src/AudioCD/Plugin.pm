@@ -348,13 +348,16 @@ sub initPlugin {
 	$META = Plugins::AudioCD::MetaCache->new(dir => catdir($base, 'meta'));
 
 	my $play = catdir($base, 'play');
-	my $cdir = Plugins::AudioCD::Cache::cache_dir(candidates => [ '/run/audiocd', '/dev/shm/audiocd', $play ]);
+	# /run je mali tmpfs: za svaki novi disk Cache bira prvi kandidat sa dovoljno mesta (df sa rokom)
+	my @cand = ('/run/audiocd', '/dev/shm/audiocd', $play);
+	my $cdir = Plugins::AudioCD::Cache::cache_dir(candidates => \@cand);
 	unless ($cdir) {
 		$log->error("nema upisivog foldera za kes; koristim $play");
 		$cdir = $play;
 	}
-	_clear_dir($cdir);
-	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, device => \&_device, secure => sub { $prefs->get('secureCache') },
+	-d $_ && _clear_dir($_) for @cand;
+	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, candidates => \@cand,
+		device => \&_device, secure => sub { $prefs->get('secureCache') },
 		on_change => sub { $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(

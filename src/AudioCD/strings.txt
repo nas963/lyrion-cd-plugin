@@ -362,6 +362,10 @@ PLUGIN_AUDIOCD_ERR_CACHE_FAILED
 	EN	Could not prepare the track for playback.
 	SR	Pesma nije mogla da se pripremi za slušanje.
 
+PLUGIN_AUDIOCD_ERR_CACHE_NO_SPACE
+	EN	Not enough free memory to play the CD (/run, /dev/shm and the Lyrion cache folder are all too full).
+	SR	Nema dovoljno slobodne memorije za slušanje diska (/run, /dev/shm i keš folder Lyrion-a su puni).
+
 PLUGIN_AUDIOCD_ERR_DRIVE_BUSY
 	EN	The drive is busy, try again in a moment.
 	SR	Drajv je zauzet, pokušajte za trenutak.

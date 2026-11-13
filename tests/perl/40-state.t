@@ -75,6 +75,7 @@ sub mkresult {
 	sub start {
 		my ($s, $disc, $toc, $n) = @_;
 		push @{ $s->{starts} }, { disc => $disc, toc => $toc, n => $n };
+		return 0 if $s->{fail};
 		if (!defined $s->{discid} || $s->{discid} ne $disc->{discid}) { $s->{done} = {} }
 		$s->{discid} = $disc->{discid};
 		$s->{busy}   = 1;
@@ -83,6 +84,7 @@ sub mkresult {
 	sub stop   { my $s = shift; $s->{stops}++; $s->{busy} = 0 }
 	sub clear  { my $s = shift; $s->{clears}++; $s->{busy} = 0; $s->{discid} = undef; $s->{done} = {} }
 	sub busy   { $_[0]{busy} }
+	sub last_error { $_[0]{fail} }
 	sub discid { $_[0]{discid} }
 	sub ready  { my ($s, $n) = @_; $s->{done}{$n} ? 1 : 0 }
 	sub status { my $s = shift; { done => [ sort { $a <=> $b } keys %{ $s->{done} } ], failed => [], current => undef, percent => 0 } }
@@ -918,6 +920,19 @@ sub loaded {
 	$w = world();
 	($ok, $err) = $w->{state}->request_cache($ID, 1);
 	is($err->{error}, 'wrong_disc', 'prazan drajv -> wrong_disc');
+}
+
+# ---------- kes bez mesta: jasna greska (cache_no_space) ----------
+{
+	my $w = loaded();
+	$w->{cache}{fail} = { error => 'cache_no_space', needed => 123 };
+	my ($ok, $err) = $w->{state}->request_play('aa:bb', 1);
+	ok(!$ok, 'Play bez mesta za kes odbijen');
+	is($err->{error}, 'cache_no_space', 'Play: cache_no_space');
+	is($err->{needed}, 123, 'Play: potrebno');
+	is(scalar @{ $w->{plays} }, 0, 'plejer nije dirnut');
+	($ok, $err) = $w->{state}->request_cache($ID, 1);
+	is($err->{error}, 'cache_no_space', 'request_cache: cache_no_space');
 }
 
 done_testing;

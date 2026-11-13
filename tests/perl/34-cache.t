@@ -409,4 +409,59 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     is_deeply [ $o->poll(1) ], [ 'fail', 'kes ne izvlaci pesme' ], 'bez ensure: fail';
 }
 
+# ---- slobodan prostor: /run je mali tmpfs; potrebno ~ sekunde * 176400 * 0.65 + 20 MB ----
+{
+    # $toc: 5 audio pesama (enhanced CD: audio leadout je pre data sesije)
+    my $secs = 0;
+    $secs += $_ for values %{ Plugins::AudioCD::DiscId::track_lengths($toc) };
+    ok $secs > 0, "audio sekunde: $secs";
+    my $need = int($secs * 176400 * 0.65) + 20 * 1024 * 1024;
+    is $C->can('needed_bytes')->($toc), $need, 'needed_bytes: audio sekunde * 176400 * 0.65 + 20 MB';
+
+    my ($a, $b, $c3) = (fresh_dir(), fresh_dir(), fresh_dir());
+    my %free = ($a => $need - 1, $b => $need, $c3 => 10 * $need);
+    my @asked;
+    my $df = sub { push @asked, $_[0]; return $free{ $_[0] } };
+    @SPAWNS = ();
+    my $c = $C->new(spawn => $fake, dir => $a, candidates => [ $a, $b, $c3 ], df => $df,
+        device => '/dev/sr0', paranoia => 'cd-paranoia', flac => 'flac');
+    ok $c->start(mkdisc(), $toc, 1), 'start: prvi folder nema mesta, drugi ima';
+    is $c->dir, $b, 'kes je u drugom kandidatu';
+    like $SPAWNS[0]{cmd}, qr/'-o' '\Q$b\E\/\Q$DISCID\E\/01\.flac\.part'/, 'pesma se pise u drugi folder';
+    is_deeply \@asked, [ $a, $b ], 'df redom, staje na prvom koji ima mesta';
+    is $c->last_error, undef, 'bez greske';
+    my $p = $c->waiter(key => 'z', discid => $DISCID, n => 1);
+    finish($SPAWNS[0]);
+    like(($p->poll(1))[1], qr{^\Q$b\E/}, 'path iz novog foldera');
+    $c->stop;
+
+    # isti disk ponovo: bez nove provere (kes vec postoji)
+    @asked = ();
+    ok $c->start(mkdisc(), $toc, 2), 'isti disk: nastavlja';
+    is_deeply \@asked, [], 'isti disk: df se ne pita';
+    $c->stop;
+
+    # nigde nema mesta: jasna greska, nista se ne pokrece
+    %free = ($a => 1, $b => 1, $c3 => 1);
+    @SPAWNS = ();
+    my $n2 = $C->new(spawn => $fake, dir => $a, candidates => [ $a, $b, $c3 ], df => $df,
+        device => '/dev/sr0', paranoia => 'cd-paranoia', flac => 'flac');
+    ok !$n2->start(mkdisc(), $toc, 1), 'nigde nema mesta: start 0';
+    my $e = $n2->last_error;
+    is ref $e eq 'HASH' && $e->{error}, 'cache_no_space', 'greska cache_no_space';
+    is $e->{needed}, $need, 'greska: potrebno';
+    is scalar(@SPAWNS), 0, 'nista nije pokrenuto';
+    ok !$n2->busy, 'kes ne radi';
+
+    # df ne zna (spor, mrtav mount): dozvoljava se
+    @SPAWNS = ();
+    my $u = $C->new(spawn => $fake, dir => $a, candidates => [ $a ], df => sub { undef },
+        device => '/dev/sr0', paranoia => 'cd-paranoia', flac => 'flac');
+    my @warn;
+    local $SIG{__WARN__} = sub { push @warn, $_[0] };
+    ok $u->start(mkdisc(), $toc, 1), 'df nepoznat: start radi';
+    ok scalar(grep { /slobodan prostor/ } @warn), 'df nepoznat: upozorenje';
+    $u->stop;
+}
+
 done_testing;

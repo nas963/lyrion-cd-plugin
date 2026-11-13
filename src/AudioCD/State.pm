@@ -483,8 +483,9 @@ sub _start_cache {
 	return _err('missing_tools', tools => \@miss) if @miss;
 	my $c = $self->{d}{cache};
 	unless ($c->start($self->{disc}, $self->{toc}, $n + 0)) {
-		my $e = $c->can('last_error') ? $c->last_error : undef;
-		return _err($e || 'cache_failed');
+		my $e = $c->can('last_error') ? $c->last_error : undef;    # npr. { error => 'cache_no_space', needed }
+		return (undef, { %$e }) if ref $e eq 'HASH' && defined $e->{error};
+		return _err('cache_failed');
 	}
 	return (1, undef);
 }
@@ -507,7 +508,7 @@ sub request_play {
 # request_cache($discid, $n): audiocd:// pesma pustena mimo request_play (lista vracena posle
 # restarta LMS-a, Add / Play next, ponovo ubacen disk) -> kes se pokrece, lista plejera se ne dira.
 # Greske: wrong_disc (u drajvu nije taj disk: odmah fail), not_ready (disk se jos cita),
-# bad_track, drive_busy (busy => rip|process|lookup), missing_tools, no_space, cache_failed.
+# bad_track, drive_busy (busy => rip|process|lookup), missing_tools, cache_no_space, cache_failed.
 sub request_cache {
 	my ($self, $discid, $n) = @_;
 	return _err('stopped') if $self->{stopped};

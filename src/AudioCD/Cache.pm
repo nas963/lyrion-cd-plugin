@@ -35,6 +35,17 @@ sub track_artist {
 
 # ---------- folder kesa ----------
 
+use constant BYTES_PER_SEC => 176400;
+use constant RESERVE       => 20 * 1024 * 1024;
+
+# Potrebno mesto za kes diska: audio sekunde * 176400 * 0.65 (flac -0) + 20 MB.
+sub needed_bytes {
+	my ($toc) = @_;
+	my $secs = 0;
+	$secs += $_ for values %{ Plugins::AudioCD::DiscId::track_lengths($toc) };
+	return int($secs * BYTES_PER_SEC * 0.65) + RESERVE;
+}
+
 # cache_dir(candidates => [...]) -> prvi koji postoji ili moze da se napravi i upisiv je; inace undef
 sub cache_dir {
 	my (%a) = @_;
@@ -54,6 +65,9 @@ sub new {
 	return bless {
 		spawn     => $a{spawn} || sub { Plugins::AudioCD::Jobs->spawn(@_) },
 		dir       => $a{dir},
+		candidates => $a{candidates} || [],    # folderi za kes redom; bira se prvi sa dovoljno mesta
+		df        => $a{df} || \&Plugins::AudioCD::Tools::df_free,
+		last_error => undef,
 		device    => $a{device},    # string ili sub (pref se cita za svaku pesmu)
 		secure    => $a{secure},    # 0|1 ili sub
 		on_change => $a{on_change},
@@ -85,14 +99,37 @@ sub _secure { return _val($_[0]{secure}) ? 1 : 0 }
 sub _disc_dir { "$_[0]{dir}/$_[1]" }
 sub _file { my ($self, $n) = @_; return sprintf('%s/%02d.flac', $self->_disc_dir($self->{discid}), $n) }
 
-# Brise kes svih drugih diskova (cuva se samo trenutni).
+# Kandidati za folder kesa, redom (Plugin: /run/audiocd, /dev/shm/audiocd, LMS cache); bez njih samo dir.
+sub _candidates {
+	my ($self) = @_;
+	my %seen;
+	return grep { defined && length && !$seen{$_}++ } @{ $self->{candidates} || [] }, $self->{dir};
+}
+
+# Prvi kandidat koji je upisiv i ima bar $need slobodnih bajtova (df nepoznat: upozorenje, prihvata se).
+sub _pick_dir {
+	my ($self, $need) = @_;
+	for my $d ($self->_candidates) {
+		next unless defined cache_dir(candidates => [$d]);
+		my $free = $self->{df}->($d);
+		unless (defined $free) {
+			warn "Cache: ne mogu da saznam slobodan prostor za $d; provera se preskace\n";
+			return $d;
+		}
+		return $d if $free >= $need;
+	}
+	return undef;
+}
+
+# Brise kes svih drugih diskova u folderu $dir (podrazumevano tekuci; cuva se samo trenutni).
 sub _remove_others {
-	my ($self, $keep) = @_;
-	opendir(my $dh, $self->{dir}) or return;
+	my ($self, $keep, $dir) = @_;
+	$dir //= $self->{dir};
+	opendir(my $dh, $dir) or return;
 	my @kids = grep { valid_discid($_) && $_ ne $keep } readdir $dh;
 	closedir $dh;
 	for my $k (@kids) {
-		my $p = "$self->{dir}/$k";
+		my $p = "$dir/$k";
 		next if -l $p || !-d _;
 		File::Path::remove_tree($p, { error => \my $err });
 	}
@@ -122,11 +159,23 @@ sub start {
 		return 0;
 	}
 
+	$self->{last_error} = undef;
 	if (!defined $self->{discid} || $self->{discid} ne $id) {
 		$self->stop;
 		$self->{done}   = {};
+		$self->{discid} = undef;
+		$self->{tracks} = [];
+		$self->_remove_others($id, $_) for $self->_candidates;    # stari disk oslobadja mesto pre provere
+		my $need = needed_bytes($toc);
+		my $dir = $self->_pick_dir($need);
+		unless (defined $dir) {
+			$self->{last_error} = { error => 'cache_no_space', needed => $need };
+			warn "Cache: nema mesta za kes diska ($need bajtova) ni u jednom folderu\n";
+			$self->_notify;
+			return 0;
+		}
+		$self->{dir}    = $dir;
 		$self->{discid} = $id;
-		$self->_remove_others($id);
 		File::Path::make_path($self->_disc_dir($id), { mode => 0755, error => \my $err });
 		$self->_scan_existing;
 	}
@@ -174,6 +223,8 @@ sub busy {
 }
 
 sub discid { $_[0]{discid} }
+sub dir    { $_[0]{dir} }
+sub last_error { $_[0]{last_error} }    # posle neuspelog start-a: { error => 'cache_no_space', needed }
 
 # Prekida tekucu pesmu (brise .part) i prazni red; gotove pesme ostaju.
 sub stop {
