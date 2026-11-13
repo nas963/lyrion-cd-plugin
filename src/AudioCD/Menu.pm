@@ -100,7 +100,7 @@ sub feed {
 	}
 
 	my $discid = $snap->{discid};
-	my $image = $snap->{cover} ? "plugins/AudioCD/cover/$discid.jpg" : ICON;
+	my $image = $snap->{cover} ? "plugins/AudioCD/cover/cd.$discid.jpg" : ICON;
 	my %meta = map { ref $_ eq 'HASH' && defined $_->{n} ? ($_->{n} => $_) : () } @{ $disc->{tracks} || [] };
 
 	my @items;

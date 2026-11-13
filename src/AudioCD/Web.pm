@@ -19,11 +19,14 @@ use Plugins::AudioCD::Cache;
 
 use constant PAGE        => 'plugins/AudioCD/index.html';
 use constant COVER_PREFIX => 'plugins/AudioCD/cover/';
+# LMS (Slim::Web::HTTP) svaku putanju oblika /ime_WxH[_m] salje svom resizeru, koji ne zna za nase omote (404),
+# a Material Skin svakoj slici pod /plugins/ dodaje takav sufiks. Zato je URL omota plugin/cover/cd.<discid>.jpg:
+# tacka posle "cd" prekida ime koje regex resizera trazi, pa zahtev stize do nase rute (i sa sufiksom).
 # Material Skin ubacuje velicinu pre ekstenzije (_100x100_f, _50x50_o, ...); to je jedini dozvoljen sufiks.
 # Omot se vraca u originalnoj velicini (pretrazivac ga smanjuje), bez izrade novih fajlova.
 use constant SIZE_SUFFIX => qr/(?:_[0-9]{1,4}x[0-9]{1,4}(?:_[a-z])?)?/;
 # isti oblik kao Cache::valid_discid: 27 znakova + '-'; nista drugo (../ je odbijeno)
-use constant COVER_RE    => qr{^plugins/AudioCD/cover/([A-Za-z0-9._-]{27}-)@{[ SIZE_SUFFIX ]}\.jpg\z};
+use constant COVER_RE    => qr{^plugins/AudioCD/cover/(?:cd\.)?([A-Za-z0-9._-]{27}-)@{[ SIZE_SUFFIX ]}\.jpg\z};
 use constant GENERIC_RE  => qr{^plugins/AudioCD/cd-generic@{[ SIZE_SUFFIX ]}\.png\z};
 
 my $DIR = File::Basename::dirname(__FILE__);
@@ -31,7 +34,10 @@ my $GENERIC = File::Spec->catfile($DIR, 'HTML', 'EN', 'plugins', 'AudioCD', 'cd-
 
 my $METACACHE;
 
-# plugins/AudioCD/cover/<discid>[_WxH[_x]].jpg -> discid | undef
+# URL omota (relativan, kako ga trazi Material); ProtocolHandler/State dodaju vodecu kosu crtu
+sub cover_url { my ($discid) = @_; return "plugins/AudioCD/cover/cd.$discid.jpg" }
+
+# plugins/AudioCD/cover/[cd.]<discid>[_WxH[_x]].jpg -> discid | undef
 sub cover_discid {
 	my ($path) = @_;
 	return undef unless defined $path;

@@ -278,7 +278,7 @@ sub loaded {
 	print {$fh} 'jpg';
 	close $fh;
 	$w->{covers}[0][2]->(1);
-	is($w->{state}->snapshot->{cover_url}, "/plugins/AudioCD/cover/$ID.jpg", 'cover_url posle preuzimanja');
+	is($w->{state}->snapshot->{cover_url}, "/plugins/AudioCD/cover/cd.$ID.jpg", 'cover_url posle preuzimanja');
 	ok(!exists $w->{state}->snapshot->{cover_path}, 'snapshot bez putanje fajla na serveru');
 
 	# omot vec postoji: ne preuzima se ponovo

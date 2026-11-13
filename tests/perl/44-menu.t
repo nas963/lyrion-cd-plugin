@@ -20,7 +20,7 @@ my $disc = {
 my $toc = { tracks => [ { n => 1 }, { n => 2 }, { n => 3, data => 1 }, { n => 4 } ] };
 
 my $ready = { status => 'ready', discid => $id, metadata => $disc, toc => $toc, cover => 1,
-	cover_url => "/plugins/AudioCD/cover/$id.jpg", drive_busy => 'none', rip => {}, missing_tools => [] };
+	cover_url => "/plugins/AudioCD/cover/cd.$id.jpg", drive_busy => 'none', rip => {}, missing_tools => [] };
 
 my @ran;
 my %opts = (
@@ -67,7 +67,7 @@ is_deeply names(feed(undef)), [ 'PLUGIN_AUDIOCD_UI_NO_DISC', 'PLUGIN_AUDIOCD_UI_
 	is_deeply [ map { $_->{url} } @tr ], [ "audiocd://$id/1", "audiocd://$id/2", "audiocd://$id/4" ], 'url pesama audiocd://<discid>/<n>';
 	is_deeply [ map { $_->{type} } @tr ], [ ('audio') x 3 ], 'type audio';
 	is $tr[0]{name}, '1. In the Flesh?', 'naziv pesme sa rednim brojem';
-	is $tr[0]{image}, "plugins/AudioCD/cover/$id.jpg", 'omot preko rute plugina';
+	is $tr[0]{image}, "plugins/AudioCD/cover/cd.$id.jpg", 'omot preko rute plugina';
 	is $tr[1]{line2}, 'Pink Floyd', 'izvodjac diska kad pesma nema svog';
 	is $tr[2]{line2}, 'Gilmour', 'izvodjac pesme';
 	is $tr[0]{secs}, 199, 'trajanje';

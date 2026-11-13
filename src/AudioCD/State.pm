@@ -646,7 +646,7 @@ sub snapshot {
 		fuzzy         => $self->{fuzzy},
 		metadata      => $self->{disc},
 		cover         => defined $cover ? 1 : 0,
-		cover_url     => defined $cover ? "/plugins/AudioCD/cover/$self->{discid}.jpg" : undef,
+		cover_url     => defined $cover ? "/plugins/AudioCD/cover/cd.$self->{discid}.jpg" : undef,
 		drive_busy    => $self->drive_busy,
 		cache         => { %$cs, discid => $self->{d}{cache}->discid },
 		rip           => $self->{d}{ripper}->status,

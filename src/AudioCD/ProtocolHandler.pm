@@ -78,7 +78,7 @@ sub _track_meta {
 	return { disc => $disc, track => $t || {} };
 }
 
-sub cover_url { my ($class, $discid) = @_; return "/plugins/AudioCD/cover/$discid.jpg" }
+sub cover_url { my ($class, $discid) = @_; return "/plugins/AudioCD/cover/cd.$discid.jpg" }
 
 # ---------- LMS handler API ----------
 

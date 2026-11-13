@@ -33,6 +33,24 @@ for my $badsuf ('_100x100_ff', '_x100_f', '_100x100_F', '_100x100_f/..', '_10000
 }
 is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/../x_100x100_f.jpg"), undef, 'losa putanja i sa sufiksom');
 is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/abc-_100x100_f.jpg"), undef, 'los discid i sa sufiksom');
+# URL koji plugin sam daje: "cd." ispred discid-a drzi putanju van LMS-ovog resizera (vidi dole)
+is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/cd.$id.jpg"), $id, 'cd.<discid>.jpg se prihvata');
+is(Plugins::AudioCD::Web::cover_discid("/plugins/AudioCD/cover/cd.${id}_100x100_f.jpg"), $id, 'cd.<discid>_100x100_f.jpg se prihvata');
+is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/cd.cd.$id.jpg"), undef, 'dupli prefiks se odbija');
+is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/xx.$id.jpg"), undef, 'drugi prefiks se odbija');
+is(Plugins::AudioCD::Web::cover_url($id), "plugins/AudioCD/cover/cd.$id.jpg", 'cover_url');
+{
+	# LMS (Slim::Web::HTTP) sve putanje oblika /ime_WxH[_m] salje svom resizeru, koji ne zna za nase omote (404).
+	# "cd." pre discid-a prekida [\w-]+ pa putanja stize do nase rute, i sa Material sufiksom.
+	my $lms = qr/\/[\w-]+_(X|\d+)x(X|\d+)(?:_([mpsSfFco]))?(?:_[\da-fA-F]+)?/x;
+	for my $d ($id, 'a_b_c.d-e_f-g.h_i-j.k_l-m_n-', 'AAAAAAAAAAAAAAAAAAAAAAAAAAA-') {
+		my $u = Plugins::AudioCD::Web::cover_url($d);
+		(my $m = $u) =~ s/\.jpg$/_100x100_f.jpg/;
+		unlike("/$m", $lms, "Material URL za $d ne ide LMS resizeru");
+		like($m, Plugins::AudioCD::Web::COVER_RE, "...a nasa ruta ga prihvata");
+	}
+	like('/plugins/AudioCD/cover/' . $id . '_100x100_f.jpg', $lms, 'bez prefiksa bi ga resizer preuzeo (zato prefiks)');
+}
 is(Plugins::AudioCD::Web::cover_discid("plugins/AudioCD/cover/$id.png"), undef, 'samo .jpg');
 for my $g ('cd-generic.png', 'cd-generic_100x100_f.png', 'cd-generic_50x50_o.png', 'cd-generic_300x300_f.png') {
 	like("plugins/AudioCD/$g", Plugins::AudioCD::Web::GENERIC_RE, "genericki CD: $g");
@@ -67,6 +85,9 @@ is(Plugins::AudioCD::Web::cover_discid(undef), undef, 'undef');
 	($f, $ct) = Plugins::AudioCD::Web::cover_file("plugins/AudioCD/cover/${id}_100x100_f.jpg", $cover_path);
 	is($f, "$tmp/$id.jpg", 'Material velicina: isti fajl omota');
 	is($ct, 'image/jpeg', '...i image/jpeg');
+
+	($f, $ct) = Plugins::AudioCD::Web::cover_file("plugins/AudioCD/cover/cd.${id}_50x50_o.jpg", $cover_path);
+	is($f, "$tmp/$id.jpg", 'cd. prefiks + Material velicina: isti fajl omota');
 
 	($f, $ct) = Plugins::AudioCD::Web::cover_file('plugins/AudioCD/cover/../x.jpg', $cover_path);
 	like($f, qr{/cd-generic\.png\z}, 'losa putanja ne cita nista sem generickog CD-a');
