@@ -553,6 +553,7 @@ sub shutdown {
 	$self->{stopped} = 1;
 	$self->{gen}++;
 	$self->_kill_lookup;
+	eval { $self->{d}{ripper}->shutdown('shutdown'); 1 } or $self->_log(warn => "rip shutdown: $@");
 	eval { $self->{d}{kill_all}->(); 1 } or $self->_log(warn => "kill_all: $@");
 	eval { $self->{d}{cache}->clear; 1 } or $self->_log(warn => "kes: $@");
 	my %dirs = (%{ $self->{rip_dirs} });

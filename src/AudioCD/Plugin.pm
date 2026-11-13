@@ -353,7 +353,7 @@ sub initPlugin {
 		history_file => catdir($base, 'history.json'),
 		on_change    => sub { return unless $STATE; $STATE->on_rip_change; $STATE->on_jobs_changed },
 	);
-	my $n = Plugins::AudioCD::Ripper::cleanup_stale(_rips_dir());
+	my $n = $RIPPER->recover_interrupted(_rips_dir());
 	$log->warn("obrisano $n ostataka prekinutih rip-ova") if $n;
 
 	my $lookup = Plugins::AudioCD::Metadata::Lookup->new(

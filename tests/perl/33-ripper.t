@@ -448,6 +448,90 @@ sub mk {
     is($R->can('cleanup_stale')->("$rips/nema"), 0, 'nepostojeci folder je ok');
 }
 
+# ---- gasenje i prekinut rip (Review Focus 4) ----
+{
+    my $rips = fresh_rips();
+    my $hist = "$root/shut-hist.json";
+    @SPAWNS = ();
+    $AUTO = undef;
+    my $r = mk(hist => $hist);
+    my ($id1) = $r->enqueue(disc => mkdisc(), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    my ($id2) = $r->enqueue(disc => mkdisc(discid => 'drugi-disk-id'), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    ok(-f "$rips/.audiocd-tmp/$id1/job.json", 'job.json marker pri startu ripa');
+    my $m = JSON::PP->new->utf8->decode(slurp("$rips/.audiocd-tmp/$id1/job.json"));
+    is($m->{id}, $id1, 'marker: id');
+    is($m->{artist}, 'Izvođač', 'marker: artist');
+    is($m->{profile}, 'balanced', 'marker: profil');
+    ok($m->{started}, 'marker: started');
+    $r->shutdown('shutdown');
+    my $disk = JSON::PP->new->utf8->decode(slurp($hist));
+    is(scalar @$disk, 2, 'shutdown: oba unosa sacuvana sinhrono');
+    is_deeply([ sort map { "$_->{id}:$_->{result}:$_->{reason}" } @$disk ],
+        [ sort "$id1:cancelled:shutdown", "$id2:cancelled:shutdown" ], 'shutdown: cancelled + reason');
+    ok(!$r->busy, 'shutdown: nista vise ne radi');
+    $SPAWNS[0]{on_exit}->(143);
+    is(scalar @{ $r->history }, 2, 'zakasneli on_exit ne dupla istoriju');
+}
+{
+    my $rips = fresh_rips();
+    my $hist = "$root/crash-hist.json";
+    my $t = "$rips/.audiocd-tmp";
+    File::Path::make_path("$t/rip-1-1", "$t/rip-2-2", "$t/rip-3-3");
+    for my $e ([ 'rip-1-1', 'Izvođač' ], [ 'rip-2-2', 'Drugi' ]) {
+        open my $fh, '>:raw', "$t/$e->[0]/job.json" or die;
+        print {$fh} JSON::PP->new->utf8->encode({ id => $e->[0], discid => "d-$e->[0]", artist => $e->[1], album => 'Alb', profile => 'secure', started => 1000 });
+        close $fh;
+    }
+    my $pre = mk(hist => $hist);
+    $pre->_add_history({ id => 'rip-2-2', disc => { discid => 'd-rip-2-2' }, profile => 'secure' }, 'ok');
+    my $r = mk(hist => $hist);
+    is($r->recover_interrupted($rips), 3, 'recover brise sve ostatke');
+    is_deeply([ ls($t) ], [], 'tmp prazan');
+    my $h = $r->history;
+    is(scalar @$h, 2, 'jedan novi unos (rip-2-2 vec postoji, rip-3-3 nema marker)');
+    my ($e) = grep { $_->{id} eq 'rip-1-1' } @$h;
+    is($e->{result}, 'error', 'interrupted: result error');
+    is($e->{message}, 'interrupted', 'interrupted: message');
+    is($e->{artist}, 'Izvođač', 'interrupted: artist iz markera');
+    is($e->{discid}, 'd-rip-1-1', 'interrupted: discid');
+    is($e->{profile}, 'secure', 'interrupted: profil');
+    my $disk = JSON::PP->new->utf8->decode(slurp($hist));
+    is(scalar @$disk, 2, 'interrupted: sacuvano na disku');
+    is($r->recover_interrupted("$rips/nema"), 0, 'recover: nepostojeci folder');
+}
+{
+    # retry bez -S: istorija belezi note; ostvaren rip
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    my $n = 0;
+    $AUTO = sub {
+        my ($sp) = @_;
+        if (++$n == 1) { $sp->{on_line}->('drive does not support changing speeds'); $sp->{on_exit}->(1) }
+        else { write_rip($sp); $sp->{on_exit}->(0) }
+    };
+    my $r = mk();
+    $r->enqueue(disc => mkdisc(), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    is(scalar @SPAWNS, 2, 'retry bez -S: drugi spawn');
+    is($r->history->[0]{note}, 'no_speed', 'istorija: note no_speed');
+    is($r->history->[0]{result}, 'ok', 'retry bez -S uspeva');
+}
+{
+    # retry pukne u _start (nema mesta): red ne sme da zastane
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    $AUTO = undef;
+    my $calls = 0;
+    my $df = sub { ++$calls == 4 ? 1 : 10 * 1024**3 };    # 4. poziv = retry
+    my $r = $R->new(spawn => $fake, df => $df, cyanrip => 'cyanrip');
+    $r->enqueue(disc => mkdisc(), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    $r->enqueue(disc => mkdisc(discid => 'drugi-disk-id'), toc => $toc, device => '/dev/cdrom', rips_dir => $rips);
+    $SPAWNS[0]{on_line}->('drive does not support changing speeds');
+    $SPAWNS[0]{on_exit}->(1);
+    is(scalar @SPAWNS, 2, 'retry pukao: sledeci iz reda je pokrenut');
+    is($r->history->[0]{result}, 'error', 'retry pukao: error u istoriji');
+    ok($r->busy, 'red nije zastao');
+}
+
 # ---- default df ----
 {
     my $free = $R->can('default_df')->('.');

@@ -101,6 +101,7 @@ sub mkresult {
 		$s->{current} = { id => $id, disc => $a{disc}{discid}, percent => 0, state => 'ripping', eject_after => $a{eject_after} ? 1 : 0 };
 		return ($id, undef);
 	}
+	sub shutdown  { my ($s, $r) = @_; push @{ $s->{shutdowns} }, $r; push @{ $s->{order} }, 'ripper'; 1 }
 	sub abort_all { my ($s, $r) = @_; push @{ $s->{aborts} }, $r; $s->{current} = undef; $s->{queue} = []; 1 }
 	sub cancel    { my ($s, $id) = @_; push @{ $s->{cancels} }, $id; 1 }
 	sub busy      { $_[0]{current} || @{ $_[0]{queue} } ? 1 : 0 }
@@ -152,7 +153,7 @@ sub world {
 		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0]; $w->{eject_done} = $_[1] },
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
-		kill_all    => sub { $w->{kills}++ },
+		kill_all    => sub { $w->{kills}++; push @{ $w->{ripper}{order} }, 'kill_all' },
 		drive_status => sub { $w->{drive_calls}++; @{ $w->{drive} } },
 		lookup_busy => sub { $w->{cdinfo} },
 		drive_procs => sub { $w->{procs} },
@@ -572,6 +573,8 @@ sub loaded {
 	File::Path::make_path("$w->{dir}/rips/.audiocd-tmp/rip-1");
 	$st->shutdown;
 	is($w->{kills}, 1, 'shutdown: kill_all');
+	is_deeply($w->{ripper}{shutdowns}, ['shutdown'], 'shutdown: istorija ripa pre kill_all');
+	is_deeply($w->{ripper}{order}, [qw(ripper kill_all)], 'shutdown: ripper pa kill_all');
 	ok($w->{cache}{clears} >= 1, 'shutdown: Cache::clear');
 	ok(!-e "$w->{dir}/rips/.audiocd-tmp/rip-1", 'shutdown: tmp ripa obrisan');
 

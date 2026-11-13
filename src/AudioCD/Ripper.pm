@@ -295,6 +295,63 @@ sub abort_all {
     return scalar(@q) + ($c ? 1 : 0);
 }
 
+# Gasenje LMS-a: kill_all ne zove callback-ove, pa istoriju za tekuci rip i red upisujemo ovde,
+# sinhrono (istorija je na disku pre izlaska). Red se belezi kao 'cancelled' kao i tekuci.
+# Ne pokrece nista novo i ne zove on_change.
+sub shutdown {
+    my ($self, $reason) = @_;
+    $reason = 'shutdown' unless defined $reason && length $reason;
+    my @q = splice @{ $self->{queue} };
+    $self->_add_history($_, 'cancelled', reason => $reason) for @q;
+    my $c = $self->{current};
+    if ($c && !$c->{finished}++) {
+        $self->{current} = undef;
+        $c->{job} = undef;
+        $self->_add_history($c, 'cancelled', reason => $reason);
+    }
+    return scalar(@q) + ($c ? 1 : 0);
+}
+
+# Marker u tmp folderu rip-a: posle pada (kill -9) pri sledecem startu daje istoriju 'interrupted'.
+sub _write_marker {
+    my ($self, $rec) = @_;
+    my $d = $rec->{disc};
+    my $f = _fs($rec->{tmp}) . '/job.json';
+    eval {
+        open my $fh, '>:raw', $f or die "open: $!\n";
+        print {$fh} JSON::PP->new->utf8->canonical->encode({
+            id => $rec->{id}, discid => $d->{discid}, artist => $d->{artist}, album => $d->{album},
+            profile => $rec->{profile}, started => $self->{now}->(),
+        }) or die "write: $!\n";
+        close $fh or die "close: $!\n";
+        1;
+    } or warn "Ripper: marker nije upisan: $@";
+    return;
+}
+
+# Pri startu: za svaki ostatak sa markerom i bez unosa u istoriji upisi error/interrupted, pa
+# obrisi ostatke (cleanup_stale). Vraca broj obrisanih foldera.
+sub recover_interrupted {
+    my ($self, $rips_dir) = @_;
+    return 0 unless defined $rips_dir && length $rips_dir;
+    my $tmp = _fs("$rips_dir/" . TMP_NAME);
+    if (!-l $tmp && -d $tmp && opendir(my $dh, $tmp)) {
+        my @kids = sort grep { $_ ne '.' && $_ ne '..' } readdir $dh;
+        closedir $dh;
+        for my $k (@kids) {
+            my $mf = "$tmp/$k/job.json";
+            next unless -f $mf;
+            my $m = eval { JSON::PP->new->utf8->decode(_slurp($mf)) };
+            next unless ref $m eq 'HASH' && defined $m->{id};
+            next if grep { defined $_->{id} && $_->{id} eq $m->{id} } @{ $self->{history} };
+            $self->_add_history({ id => $m->{id}, profile => $m->{profile},
+                disc => { discid => $m->{discid}, artist => $m->{artist}, album => $m->{album} } },
+                'error', message => 'interrupted', started => $m->{started});
+        }
+    }
+    return cleanup_stale($rips_dir);
+}
+
 # ---------- izvrsavanje ----------
 
 sub _pump {
@@ -334,6 +391,7 @@ sub _start {
             File::Copy::copy(_fs($rec->{cover_src}), "$tmp/cover.jpg") and $cover = "$rec->{tmp}/cover.jpg";
         }
         $rec->{has_cover} = defined $cover ? 1 : 0;
+        $self->_write_marker($rec);
         my @c = Plugins::AudioCD::Profiles::rip_argv(
             cyanrip     => $self->{cyanrip},
             disc        => $rec->{disc},
@@ -428,6 +486,7 @@ sub _on_exit {
         $rec->{job}      = undef;
         $self->_remove_tmp($rec);
         $self->_start($rec);
+        $self->_pump unless $self->{current};    # _start je mogao da odustane: red ne sme da zastane
     }
     elsif ($status == 0) {
         my %res = eval { $self->_collect($rec) };
@@ -452,7 +511,7 @@ sub _finish {
     $self->_remove_tmp($rec);
     $self->{current} = undef if $self->{current} && $self->{current} == $rec;
     $rec->{job} = undef;
-    $self->_add_history($rec, $result, %extra);
+    $self->_add_history($rec, $result, ($rec->{no_speed} ? (note => 'no_speed') : ()), %extra);
     $self->_notify;
     $self->_pump;
     return;
