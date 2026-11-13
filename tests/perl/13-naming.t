@@ -25,6 +25,10 @@ is($N->can('sanitize')->('CONSOLE'), 'CONSOLE', 'nije rezervisano');
 is($N->can('sanitize')->(''), 'Unknown', 'prazno');
 is($N->can('sanitize')->('...'), 'Unknown', 'samo tacke');
 is($N->can('sanitize')->(undef), 'Unknown', 'undef');
+is($N->can('sanitize')->('.hack'), '_hack', 'tacka na pocetku -> _ (skriven folder u Sambi/LMS-u)');
+is($N->can('sanitize')->('...And Justice for All'), '___And Justice for All', 'svaka tacka na pocetku -> _');
+is($N->can('sanitize')->(' .x'), '_x', 'razmak pa tacka na pocetku');
+is($N->can('sanitize')->('a.b'), 'a.b', 'tacka u sredini ostaje');
 is($N->can('sanitize')->('Đorđe Balašević – Čovek'), 'Đorđe Balašević – Čovek', 'unicode ostaje');
 
 my $jp = "\x{65e5}" x 120;    # 360 bajtova

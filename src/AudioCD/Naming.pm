@@ -26,6 +26,9 @@ sub sanitize {
     $str = _trim($str);
     return 'Unknown' if $str eq '';
 
+    # Tacka na pocetku daje skriven folder/fajl (Samba, LMS skener ga preskace): svaka -> '_'
+    $str =~ s/\A(\.+)/'_' x length $1/e;
+
     # Rezervisano ime vazi i sa ekstenzijom: CON.txt -> CON_.txt
     if ($str =~ /\A([^.]*)(.*)\z/s && $RESERVED{ uc $1 }) {
         $str = $1 . '_' . $2;
