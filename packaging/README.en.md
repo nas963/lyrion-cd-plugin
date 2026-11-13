@@ -46,7 +46,7 @@ Lyrion: Settings, Plugins, **AudioCD**.
 | Profile | balanced | ripping profile |
 | Quiet drive | off | lower the read speed |
 | Quiet drive speed | 8 | speed (x) when quiet drive is on |
-| Drive offset | (empty) | correction for AccurateRip, if you know it |
+| Drive offset | (empty) | read offset correction for AccurateRip; find it with `cyanrip -f` (needs a disc that is in the AccurateRip database) |
 | Load disc automatically | on | read metadata as soon as a disc is inserted |
 | Auto rip | off | rip every inserted disc |
 | Auto rip profile | balanced | |
@@ -69,7 +69,7 @@ Each album gets its own folder; an existing album folder is never overwritten. F
 ## Known limitations
 - One optical drive is supported. The drive does one thing at a time: reading into the cache or ripping.
 - `cyanrip` versions differ (Ubuntu 0.9.2, Debian trixie 0.9.3): output and tags may differ slightly.
-- AccurateRip reports "not found" for discs that are not in its database; that is not an error in the rip.
+- AccurateRip reports "not found" for discs that are not in its database; that is not an error in the rip. If the disc is found but no track matches, the drive offset is missing or wrong (see Drive offset).
 - The effect on a USB DAC on the same controller has not been measured yet.
 
 ## Uninstall

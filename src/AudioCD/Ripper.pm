@@ -125,9 +125,14 @@ sub _notify {
     return;
 }
 
+# note: 'no_speed' (rip ponovljen bez -S; vazi i kad ponovni pokusaj odustane u _start),
+# 'check_offset' (sve pesme AccurateRip mismatch, a disk je u bazi); vise napomena: zarezom.
 sub _add_history {
     my ($self, $rec, $result, %extra) = @_;
     my $d = $rec->{disc};
+    my @notes = (($rec->{no_speed} ? 'no_speed' : ()), (defined $extra{note} ? $extra{note} : ()));
+    delete $extra{note};
+    $extra{note} = join ',', @notes if @notes;
     unshift @{ $self->{history} }, {
         id      => $rec->{id},
         time    => $self->{now}->(),
@@ -494,7 +499,7 @@ sub _finish {
     $self->_remove_tmp($rec);
     $self->{current} = undef if $self->{current} && $self->{current} == $rec;
     $rec->{job} = undef;
-    $self->_add_history($rec, $result, ($rec->{no_speed} ? (note => 'no_speed') : ()), %extra);
+    $self->_add_history($rec, $result, %extra);
     $self->_notify;
     $self->_pump;
     return;
@@ -608,8 +613,12 @@ sub _collect {
     $seen{notfound} = 1 if $rec->{accurip_seen}{notfound};
     my $overall = $seen{mismatch} ? 'mismatch' : $seen{match} ? 'match' : $seen{notfound} ? 'notfound' : 'none';
     my $sum = Plugins::AudioCD::Profiles::summary($log_text);
+    # Disk je u AccurateRip bazi, a nijedna pesma se ne slaze: klasican znak pogresnog ofseta drajva
+    # (bez podesenog ofseta cyanrip dobija -s 0). Delimican mismatch je losa kopija, ne ofset.
+    my $all_bad = %states && !grep { $_ ne 'mismatch' } values %states;
     return (
         result  => $overall eq 'mismatch' ? 'accurip_mismatch' : 'ok',
+        ($all_bad ? (note => 'check_offset') : ()),
         path    => $dest,
         accurip => {
             state  => $overall,

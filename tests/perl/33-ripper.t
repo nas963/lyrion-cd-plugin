@@ -529,7 +529,43 @@ sub mk {
     $SPAWNS[0]{on_exit}->(1);
     is(scalar @SPAWNS, 2, 'retry pukao: sledeci iz reda je pokrenut');
     is($r->history->[0]{result}, 'error', 'retry pukao: error u istoriji');
+    is($r->history->[0]{note}, 'no_speed', 'retry pukao: note no_speed');
     ok($r->busy, 'red nije zastao');
+}
+
+# ---- sve pesme AccurateRip mismatch, a disk je u bazi: verovatno ofset drajva (note check_offset) ----
+{
+    my $run = sub {
+        my (@states) = @_;    # po pesmi: 'match' | 'mismatch'
+        my $rips = fresh_rips();
+        @SPAWNS = ();
+        $AUTO = sub {
+            my ($sp) = @_;
+            write_rip($sp);
+            for my $t (1 .. 3) {
+                $sp->{on_line}->("Track $t ripped and encoded successfully!");
+                $sp->{on_line}->('  Accurip:       disc found in database (max confidence: 15)');
+                my $v = $states[ $t - 1 ] eq 'match' ? '(accurately ripped, confidence 197)' : '(not found, either a new pressing, or bad rip)';
+                $sp->{on_line}->("    Accurip v1:  7D75D046 $v");
+                $sp->{on_line}->("    Accurip v2:  02BA6BE2 $v");
+                $sp->{on_line}->('    Accurip 450: 6B879E77 (not found)');
+            }
+            $sp->{on_exit}->(0);
+        };
+        my $r = mk();
+        $r->enqueue(disc => mkdisc(), toc => $toc, rips_dir => $rips);
+        return $r->history->[0];
+    };
+    my $e = $run->(qw(mismatch mismatch mismatch));
+    is($e->{result}, 'accurip_mismatch', 'sve mismatch: accurip_mismatch');
+    is($e->{note}, 'check_offset', 'sve mismatch, disk u bazi: note check_offset');
+    $e = $run->(qw(match mismatch mismatch));
+    is($e->{result}, 'accurip_mismatch', 'delimicno: accurip_mismatch');
+    ok(!defined $e->{note}, 'delimicno: bez check_offset (ofset je dobar, losa kopija)');
+    $e = $run->(qw(match match match));
+    is($e->{result}, 'ok', 'sve match: ok');
+    ok(!defined $e->{note}, 'sve match: bez note');
+    $AUTO = undef;
 }
 
 # ---- default df ----

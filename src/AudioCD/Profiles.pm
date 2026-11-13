@@ -134,7 +134,11 @@ sub summary {
 	return \%s unless defined $log && length $log;
 
 	my $all_tracks;
-	$s{tracks_total} = $1 + 0 if $log =~ /^Tracks to rip:\s+(\d+)\s*$/m;
+	# "Tracks to rip:  1, 2" je lista izabranih pesama (-l); "all" = sve pesme diska
+	if ($log =~ /^Tracks to rip:\s+(\d+(?:\s*,\s*\d+)*)\s*$/m) {
+		my @l = split /\s*,\s*/, $1;
+		$s{tracks_total} = scalar @l;
+	}
 	$all_tracks = $1 + 0 if $log =~ /^Disc tracks:\s+(\d+)\s*$/m;
 	$s{tracks_total} = $all_tracks || 0 if $log =~ /^Tracks to rip:\s+all\s*$/m;
 	$s{tracks_ok} = () = $log =~ /^Track \d+ ripped and encoded successfully/mg;

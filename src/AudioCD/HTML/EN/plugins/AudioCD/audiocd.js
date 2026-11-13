@@ -392,6 +392,12 @@
 
       var ar = accuripText(e.accurip);
       if (ar) main.appendChild(el('div', 'muted', ar));
+      // napomene iz istorije: 'check_offset' (sve pesme AccurateRip mismatch), 'no_speed', ... (zarezom)
+      String(e.note || '').split(',').forEach(function (n) {
+        if (!n) return;
+        var nk = 'UI_NOTE_' + n.toUpperCase();
+        if (S[nk] != null) main.appendChild(el('div', n === 'check_offset' ? 'warn-text' : 'muted', t(nk)));
+      });
       if (e.result === 'cancelled' && e.reason) {
         var rr = 'UI_REASON_' + String(e.reason).toUpperCase();
         main.appendChild(el('div', 'muted', S[rr] != null ? t(rr) : String(e.reason)));

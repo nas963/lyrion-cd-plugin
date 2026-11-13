@@ -1,0 +1,174 @@
+Checking /dev/cdrom for cdrom...
+		CDROM sensed: ASUS     SDRW-08U7M-U     A112 SCSI CD-ROM
+
+
+Opening drive...
+Release ID unavailable, cannot search Cover Art DB!
+cyanrip 0.9.0 (release)
+System device:  /dev/cdrom
+Device model:   ASUS     SDRW-08U7M-U     A112 SCSI CD-ROM
+Offset:         +6 samples
+Overread:       +1 frame
+Overread mode:  fill with silence in lead-in/lead-out
+Speed:          default (unchangeable)
+C2 errors:      supported by drive
+Paranoia level: none
+Frame retries:  10
+HDCD decoding:  disabled
+Album Art:      none
+Outputs:        flac
+Disc number:    1
+Total discs:    1
+Disc tracks:    9
+Tracks to rip:  1, 2
+DiscID:         dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+CDDB ID:        710A5E09
+Disc MCN:       0000000000000
+Album:          AR test
+Album artist:   AR test
+AccurateRip:    found
+Total time:     00:44:14.264
+
+Gaps:
+    33 frame unmarked gap between lead-in and track 1, marking as a pregap
+    33 frame pregap in track 1, unmerged
+
+Tracks:
+Flushing encoders...
+Track 1 ripped and encoded successfully!
+Summary:
+
+  Integrated loudness:
+    I:         -24.3 LUFS
+    Threshold: -34.6 LUFS
+
+  Loudness range:
+    LRA:        11.4 LU
+    Threshold: -44.6 LUFS
+    LRA low:   -31.9 LUFS
+    LRA high:  -20.5 LUFS
+
+  True peak:
+    Peak:       -6.7 dBFS
+
+  Preemphasis:   none detected
+
+  Properties:
+    Duration:    00:02:15.120
+    Samples:     5966436
+    Frames:      10147
+    Pregap LSN:  0 (duration: 00:00:00.000)
+    Start LSN:   33
+    End LSN:     10179 (with offset: 10180)
+
+  EAC CRC32:     BCDC96A0
+  Accurip:       disc found in database (max confidence: 200)
+    Accurip v1:  CB46B521 (accurately ripped, confidence 197)
+    Accurip v2:  A7BAE66B (accurately ripped, confidence 200)
+
+  Metadata:
+    artist:                        AR test
+    track:                         1
+    disc_mcn:                      0000000000000
+    media_type:                    CD
+    cddb:                          710A5E09
+    tracktotal:                    9
+    comment:                       cyanrip 0.9.0
+    discid:                        dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+    album:                         AR test
+    album_artist:                  AR test
+    disc:                          1
+    totaldiscs:                    1
+    disctotal:                     1
+    musicbrainz_discid:            dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+    title:                         T1
+    creation_time:                 2026-11-13T01:47:22
+    REPLAYGAIN_TRACK_GAIN:         6.35 dB
+    R128_TRACK_GAIN:               2905
+    REPLAYGAIN_TRACK_RANGE:        11.40 dB
+    REPLAYGAIN_TRACK_PEAK:         0.461948
+    REPLAYGAIN_REFERENCE_LOUDNESS: -18.00 LUFS
+
+  File(s):
+    /tmp/audiocd-ar-test/out/1.flac
+
+Flushing encoders...
+Track 2 ripped and encoded successfully!
+Summary:
+
+  Integrated loudness:
+    I:         -14.8 LUFS
+    Threshold: -25.6 LUFS
+
+  Loudness range:
+    LRA:        14.8 LU
+    Threshold: -35.6 LUFS
+    LRA low:   -26.5 LUFS
+    LRA high:  -11.8 LUFS
+
+  True peak:
+    Peak:        0.4 dBFS
+
+  Preemphasis:   none detected
+
+  Properties:
+    Duration:    00:07:14.420
+    Samples:     19161744
+    Frames:      32588
+    Pregap LSN:  none
+    Start LSN:   10180
+    End LSN:     42767 (with offset: 42768)
+
+  EAC CRC32:     6FAE7CDF
+  Accurip:       disc found in database (max confidence: 200)
+    Accurip v1:  43BE940F (accurately ripped, confidence 197)
+    Accurip v2:  B0CC672D (accurately ripped, confidence 200)
+
+  Metadata:
+    artist:                        AR test
+    track:                         2
+    disc_mcn:                      0000000000000
+    media_type:                    CD
+    cddb:                          710A5E09
+    tracktotal:                    9
+    comment:                       cyanrip 0.9.0
+    discid:                        dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+    album:                         AR test
+    album_artist:                  AR test
+    disc:                          1
+    totaldiscs:                    1
+    disctotal:                     1
+    musicbrainz_discid:            dBFBpdDGyUnu4ofAwN5ZrxozKwM-
+    title:                         T2
+    creation_time:                 2026-11-13T01:48:14
+    REPLAYGAIN_TRACK_GAIN:         -3.17 dB
+    R128_TRACK_GAIN:               467
+    REPLAYGAIN_TRACK_RANGE:        14.75 dB
+    REPLAYGAIN_TRACK_PEAK:         1.043118
+    REPLAYGAIN_REFERENCE_LOUDNESS: -18.00 LUFS
+
+  File(s):
+    /tmp/audiocd-ar-test/out/2.flac
+
+Album Loudness Summary:
+
+  Integrated loudness:
+    I:         -15.7 LUFS
+    Threshold: -26.6 LUFS
+
+  Loudness range:
+    LRA:        16.0 LU
+    Threshold: -36.6 LUFS
+    LRA low:   -28.0 LUFS
+    LRA high:  -12.0 LUFS
+
+  True peak:
+    Peak:        0.4 dBFS
+
+Tracks ripped accurately: 2/9
+
+Paranoia status counts:
+  READ:          1776
+
+Ripping errors: 0
+Ripping finished at 2026-11-13T01:51:02

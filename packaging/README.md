@@ -46,7 +46,7 @@ Lyrion: Podešavanja, Dodaci, **AudioCD**.
 | Profil | uravnotežen | profil snimanja |
 | Tihi drajv | isključeno | smanji brzinu čitanja |
 | Brzina tihog drajva | 8 | brzina (x) kad je tihi drajv uključen |
-| Offset drajva | (prazno) | korekcija za AccurateRip, ako je znaš |
+| Offset drajva | (prazno) | korekcija čitanja za AccurateRip; nađi ga sa `cyanrip -f` (treba disk koji je u AccurateRip bazi) |
 | Automatski učitaj disk | uključeno | čitaj podatke čim se disk ubaci |
 | Automatsko snimanje | isključeno | snimi svaki ubačen disk |
 | Profil automatskog snimanja | uravnotežen | |
@@ -69,7 +69,7 @@ Svaki album dobija svoj folder; postojeći folder albuma se nikad ne prepisuje. 
 ## Poznata ograničenja
 - Podržan je jedan optički uređaj. Drajv radi jednu stvar u trenutku: čitanje u keš ili snimanje.
 - Verzije `cyanrip` se razlikuju (Ubuntu 0.9.2, Debian trixie 0.9.3): izlaz i oznake mogu malo da se razlikuju.
-- AccurateRip javlja "nije nađeno" za diskove kojih nema u bazi; to ne znači grešku u snimku.
+- AccurateRip javlja "nije nađeno" za diskove kojih nema u bazi; to ne znači grešku u snimku. Ako je disk nađen, a nijedna pesma se ne slaže, ofset drajva nije podešen ili je pogrešan (vidi Offset drajva).
 - Merenje uticaja na USB DAC na istom kontroleru još nije urađeno.
 
 ## Uklanjanje

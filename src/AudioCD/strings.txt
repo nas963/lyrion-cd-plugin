@@ -242,6 +242,14 @@ PLUGIN_AUDIOCD_UI_ACCURIP_MISMATCH
 	EN	AccurateRip: {0} of {1} tracks verified, the rest differ
 	SR	AccurateRip: potvrđeno {0} od {1} pesama, ostale se razlikuju
 
+PLUGIN_AUDIOCD_UI_NOTE_CHECK_OFFSET
+	EN	The disc is in the AccurateRip database but no track matched: the drive read offset is probably not set. Find it with "cyanrip -f" and enter it in Settings (Drive offset).
+	SR	Disk je u AccurateRip bazi, ali se nijedna pesma ne slaže: verovatno nije podešen ofset drajva. Nađite ga sa "cyanrip -f" i upišite u podešavanjima (Ofset drajva).
+
+PLUGIN_AUDIOCD_UI_NOTE_NO_SPEED
+	EN	The drive cannot change its reading speed, so the rip ran at the default speed.
+	SR	Drajv ne može da menja brzinu čitanja, pa je rip rađen podrazumevanom brzinom.
+
 PLUGIN_AUDIOCD_UI_ACCURIP_NOTFOUND
 	EN	Disc not in the AccurateRip database
 	SR	Disk nije u AccurateRip bazi
@@ -531,8 +539,8 @@ PLUGIN_AUDIOCD_SET_DRIVE_OFFSET
 	SR	Ofset drajva
 
 PLUGIN_AUDIOCD_SET_DRIVE_OFFSET_DESC
-	EN	Read offset in samples (see the AccurateRip drive list). Empty means 0.
-	SR	Ofset čitanja u semplovima (vidi AccurateRip listu drajvova). Prazno znači 0.
+	EN	Read offset in samples. Empty means 0. Find it with "cyanrip -f" (needs a disc that is in the AccurateRip database) or in the AccurateRip drive list. If AccurateRip finds the disc but no track matches, the offset is wrong or missing.
+	SR	Ofset čitanja u semplovima. Prazno znači 0. Nađite ga sa "cyanrip -f" (treba disk koji je u AccurateRip bazi) ili u AccurateRip listi drajvova. Ako AccurateRip nađe disk, a nijedna pesma se ne slaže, ofset je pogrešan ili nije podešen.
 
 PLUGIN_AUDIOCD_SET_AUTO_LOAD
 	EN	Read the disc automatically

@@ -162,7 +162,21 @@ ok(!has_opt('-R', rip_argv(%base, profile => 'fast', release_id => 'abc')), 'rel
 	my @acc = grep { defined $_->{accurip} } @ev;
 	is_deeply([ map { $_->{accurip} } @acc ], [qw(mismatch mismatch)], 'accurip v1 i v2 linije (nije potvrdjeno)');
 }
-is_deeply(parse_prog('    Accurip v2:  02BA6BE2 (accurately ripped, confidence 12)'), { accurip => 'match' }, 'accurip match');
+# Pravi izlaz cyanrip-a sa ispravnim ofsetom (+6, ASUS SDRW-08U7M-U), pesme 1-2: AccurateRip match
+{
+	open my $fh, '<:encoding(UTF-8)', 't/fixtures/cyanrip-output-ar-match.txt' or BAIL_OUT("fixture: $!");
+	my @lines = map { s/\r?\n\z//r } <$fh>;
+	close $fh;
+	my @ev = grep { defined } map { parse_prog($_) } @lines;
+	is_deeply([ map { $_->{done_track} } grep { defined $_->{done_track} } @ev ], [ 1, 2 ], 'pravi match: pesme 1 i 2');
+	is_deeply([ map { $_->{accurip} } grep { defined $_->{accurip} } @ev ], [qw(match match match match)], 'pravi match: v1 i v2 za obe pesme');
+	is_deeply(parse_prog('    Accurip v1:  CB46B521 (accurately ripped, confidence 197)'), { accurip => 'match' }, 'accurip match (prava linija)');
+	my $s = summary(join "\n", @lines);
+	is($s->{accurip_ok}, 2, 'pravi match: summary accurip_ok');
+	is($s->{accurip_total}, 9, 'pravi match: summary accurip_total');
+	is($s->{tracks_total}, 2, 'pravi match: "Tracks to rip:  1, 2" -> 2');
+	is($s->{tracks_ok}, 2, 'pravi match: tracks_ok');
+}
 is_deeply(parse_prog('  Accurip:       disc not found in database'), { accurip => 'notfound' }, 'accurip notfound');
 is(parse_prog('    Accurip 450: 6B879E77 (not found)'), undef, 'Accurip 450 se ne racuna');
 is(parse_prog('  Accurip:       disc found in database (max confidence: 15)'), undef, 'zaglavlje accurip se preskace');
