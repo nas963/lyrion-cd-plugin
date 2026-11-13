@@ -7,7 +7,7 @@ A plugin that turns a Lyrion server with an optical drive into a proper CD playe
 - **Playback.** Tracks are first read into a RAM cache (`/run/audiocd`) and played from there: bit-perfect and gapless.
 - **Ripping.** The album is ripped to FLAC with `cyanrip` in three profiles: `fast`, `balanced` and `secure` (more retries, lower speed). The result is checked against the AccurateRip database.
 - **Move to library.** A ripped album goes to your music folder with one click, and Lyrion scans it (if Lyrion is already scanning the library, the album scan waits for it to finish, at most 30 minutes).
-- **Material Skin.** The CD appears on the Material home screen with cover, track list and buttons for play, rip and eject.
+- **Material Skin.** The CD appears on the Material home screen with cover, track list and buttons for play, rip and eject. In the **Audio CD** menu (My Music) the disc is a single item: open it to get the track list with **Play** and **Add** in the header. Next to the disc are the **Rip** and **Eject** items. The plugin page opened from Material follows its theme (light/dark), plays on the player selected in Material (no separate player picker), and **Settings** opens in a new tab.
 
 The UI language follows the Lyrion language (Serbian or English).
 

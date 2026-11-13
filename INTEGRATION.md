@@ -12,7 +12,7 @@ ocekuje od sistema i kako se proverava da radi. Podaci o merenjima su iz `docs/v
 | `cd-paranoia` | `/usr/bin/cd-paranoia` | citanje pesama za Play kes (`cd-paranoia \| flac`) |
 | `flac` 1.5.0 | `/usr/bin/flac` | kodiranje Play kesa (`flac -0`) |
 | `libcdio-utils` 2.2.0 | `/usr/bin/cd-info` | TOC i CD-Text |
-| `eject` (util-linux 2.41) | `/usr/bin/eject` | rezerva ako ioctl izbacivanje ne uspe |
+| `eject` (util-linux 2.41) | `/usr/bin/eject` | OBAVEZAN: izbacivanje diska (USB slim drajvovi ignorisu CDROMEJECT ioctl, koji je samo rezerva) |
 | `curl` | `/usr/bin/curl` | `audiocd-notify` javlja Lyrion-u preko JSON-RPC |
 
 - Alati se traze redom `/usr/bin`, `/bin`, pa `PATH`. `nice`/`ionice` dolaze iz coreutils/util-linux (vec u sistemu).
@@ -48,8 +48,8 @@ Root je read-only sa overlay-em u RAM-u, pa ovi fajlovi moraju u ISO (ne pisu se
   `/usr/bin/systemctl start --no-block audiocd-notify@%k.service`. Namerno `RUN+=` a ne `SYSTEMD_WANTS`:
   `SYSTEMD_WANTS` sa istom instancom (`@sr0`) se najverovatnije aktivira samo pri prvoj promeni posle boot-a.
 - NIJE testirano na pravoj instalaciji: dve uzastopne promene diska (ubaci, izvadi, ubaci) sa iskljucenim pollingom.
-  Plugin ima rezervu: polling drajva na svakih 5 s je UKLJUCEN podrazumevano (`polling=1`), pa disk bude otkriven i
-  ako udev propusti dogadjaj. Audio$OS sesija treba da proveri pravilo (odeljak 10) i javi rezultat.
+  Plugin ima rezervu: polling drajva na svakih 2 s (u pomocnom procesu `audiocd-drive`, odeljak 4) je UKLJUCEN
+  podrazumevano (`polling=1`), pa disk bude otkriven i ako udev propusti dogadjaj. Audio$OS sesija treba da proveri pravilo (odeljak 10) i javi rezultat.
 - Servis: `Type=oneshot`, `User=squeezeboxserver`, `Nice=10`, `IOSchedulingClass=idle`. Poziva
   `audiocd-notify %I`.
 - `audiocd-notify`: cita `udevadm info` (`ID_CDROM_MEDIA_TRACK_COUNT_AUDIO`), pa salje `audiocd load` (ima audio
@@ -65,10 +65,16 @@ Root je read-only sa overlay-em u RAM-u, pa ovi fajlovi moraju u ISO (ne pisu se
   rezervni CDROMEJECT) radi pomocni proces `audiocd-drive` (dete LMS-a, `nice 10`, ionice `idle`; pokrece ga
   plugin, ne systemd), nikad sam LMS proces; cyanrip i cd-paranoia citaju sa uredjaja.
 - Pomocni proces otvara uredjaj za svaku operaciju (`O_RDONLY|O_NONBLOCK`, deljeno) i odmah ga zatvara, a dok
-  drajv cita drugi proces je u pauzi. Pauza je asinhrona i salje se tek posle pokretanja posla, pa u kratkom
-  prozoru (milisekunde, najvise jedan ioctl) pomocni proces jos moze da drzi fd dok `eject`, `cd-paranoia` ili
-  `cyanrip` krecu. To ne smeta: niko ne otvara uredjaj ekskluzivno, a util-linux `eject` posle neuspelog
-  CDROMEJECT-a pada na SCSI START STOP UNIT.
+  drajv cita drugi proces je u pauzi (bez polling-a, koji inace ide na 2 s). Pauza je asinhrona, salje se tek
+  posle pokretanja posla i ne prekida zahtev koji pomocni proces vec radi. Polling ioctl traje milisekunde, ali
+  citanje TOC-a na disku koji se tek zavrce traje sekundama (USB slim drajv). Zato:
+  - izbacivanje ceka (provera na 1.5 s, najvise 30 s) dok pomocni proces ima zahtev u toku i dok procesi
+    prekinutog posla ne izadju, pa alat `eject` nikad ne krece usred TOC ioctl-a;
+  - `cd-paranoia`/`cyanrip` mogu da krenu dok se TOC jos cita (npr. Play odmah posle ubacivanja). To ne smeta:
+    niko ne otvara uredjaj ekskluzivno i svi samo citaju; ako TOC zbog toga pukne, ucitan disk ostaje.
+- Izbacivanje: alat `eject` (util-linux) je glavni put, jer USB slim drajvovi ignorisu CDROMEJECT ioctl;
+  CDROMEJECT u pomocnom procesu je samo rezerva kad alata nema. Posle izbacivanja pomocni proces nastavlja
+  polling i ponovo javlja stanje drajva, pa se disk zamenjen tokom posla (rip, kes) ipak procita.
 - Podrazumevani uredjaj je `/dev/cdrom` (symlink ka `sr0`). Moze se promeniti u podesavanjima.
 
 ## 5. Putanje
@@ -96,7 +102,12 @@ Potrebno mesto = trajanje x 176400 x 0.65 + 20 MB (80 min CD je oko 500 MB). Slo
 (rok 5 s po kandidatu); ako nema mesta nigde, Play vraca gresku `cache_no_space`. Preporuka: `/run` (tmpfs) treba da
 ima bar 600 MB slobodno za 80-minutni disk (podrazumevano je to deo RAM-a, proveriti `df -h /run /dev/shm`), ili
 napraviti poseban tmpfs na `/run/audiocd` (npr. `size=700M`). Ako je RAM mali, treci kandidat je disk (`/data`),
-sporije ali radi. Kes se brise pri pokretanju plugina i pri novom disku.
+sporije ali radi.
+
+Kes PREZIVLJAVA izbacivanje diska: gotove pesme se i dalje sviraju, a isti disk ponovo ubacen nastavlja izvlacenje
+pesama koje fale. Brise se tek kad se procita DRUGI disk (ili disk bez audio pesama) ili pri restartu LMS-a
+(pokretanje/gasenje plugina). Za procenu RAM-a: do oko 500 MB u `/run` (tmpfs) moze ostati zauzeto i kad je
+drajv prazan, sve do sledeceg drugog diska ili restarta.
 
 **Metapodaci i omot**: LMS cache, `.../cache/AudioCD/meta` (JSON + omot po ID-u diska). Perzistentno ako je
 LMS cache na `/data`.
@@ -116,7 +127,7 @@ Prefs `plugin.audiocd` (iz `Config::DEFAULTS`); sve se menja na stranici podesav
 | `autoRip` / `autoRipProfile` | 0 / `balanced` | |
 | `ejectAfterRip` | 0 | |
 | `notify` | 1 | |
-| `polling` | 1 | provera drajva na 5 s (rezerva za udev) |
+| `polling` | 1 | provera drajva na 2 s u pomocnom procesu `audiocd-drive` (rezerva za udev) |
 | `secureCache` | 0 | |
 | `libraryDir` | prazno | |
 | `ripsDir` | prazno | vidi odeljak 5 |
@@ -163,7 +174,7 @@ Ako dolazi do prekida, ukljuciti `noRipWhileLocalPlays` (rip se ne pokrece dok s
 Pravi disk, Lyrion 9.1.1: Play prva pesma spremna za oko 34 s (8.6x brze od realnog), ceo disk (43:11) u kesu oko
 207 s; premotavanje i prelaz pesama rade (bez greske u logu). Rip 9 pesama: `fast` 1016 s, `balanced` 1400 s,
 `secure` 1447 s; audio deo svih rip-ova je bajt-identican (isti MD5), 12 fajlova po albumu, 0644/0755, tagovi i
-ugradjen omot ispravni. Restart LMS-a usred ripa ne ostavlja procese ni tmp. Test paket: 1552 provere, PASS.
+ugradjen omot ispravni. Restart LMS-a usred ripa ne ostavlja procese ni tmp. Test paket (1.0.1): 1963 provere, PASS.
 
 Poznata ogranicenja i otvorena pitanja:
 
@@ -173,8 +184,8 @@ Poznata ogranicenja i otvorena pitanja:
 - **SR11 auto-advance**: FiiO SR11 (UPnPBridge) ne prelazi sam na sledecu pesmu na kraju pesme (isto i sa pesmom iz
   biblioteke), vec stoji dok se ne preskoci. To je bridge/plejer, ne plugin.
 - **Prekinut rip** (restart LMS-a) se ne pojavljuje u istoriji.
-- Parkirano (prihvaceno): (a) `request_cache` vraca `wrong_disc` u prvih 3-5 s posle ubacivanja diska, pa red
-  `audiocd://` pesama moze jednom da preskoci; (b) automatsko kesiranje (Play) moze preduhitriti auto-rip koji tek
+- Parkirano (prihvaceno): (a) resen u 1.0.1: dok se ponovo ubacen disk cita, `request_cache` vraca `not_ready`
+  (pesma ceka i ponavlja), a `wrong_disc` samo za prazan drajv ili poznat drugi disk; (b) automatsko kesiranje (Play) moze preduhitriti auto-rip koji tek
   treba da krene (auto-rip se zabelezi kao "nije pokrenut", korisnik pokrece rucno); (c) `df` ogranicen na 5 s po
   kandidatu (retko kasnjenje do 15 s na novom disku); (d) zaostala delimicna kopija kesa u drugom kandidat-folderu
   do sledeceg diska ili restarta (samo RAM); (e) putanja u Latin-1 u konf. fajlu bi se dvaput kodirala (Audio$OS
@@ -186,7 +197,7 @@ Poznata ogranicenja i otvorena pitanja:
   `.log`/`.cue` u folderu albuma (trazi se glob `*.log`/`*.cue`), i da `-N` i dalje iskljucuje MusicBrainz upit.
   Nema opcije za FLAC nivo.
 - **Jezik UI-a** (web stranica, poruke) prati jezik LMS-a (engleski ili srpski).
-- `cd-info` na pravom disku traje 40 s do 2 min; plugin ga prekida posle 12 s, a polling ne dira drajv dok radi.
+- `cd-info` na pravom disku traje 40 s do 2 min; plugin ga prekida posle 10 s, a polling ne dira drajv dok radi.
 
 ## 10. Provera da radi (smoke test)
 
@@ -207,7 +218,12 @@ journalctl -u 'audiocd-notify@*' -n 20           # "audiocd-notify: sr0 -> load"
 PORT=9000   # httpport iz server.prefs
 curl -s -d '{"id":1,"method":"slim.request","params":["",["audiocd","status"]]}' http://127.0.0.1:$PORT/jsonrpc.js
 curl -s -d '{"id":1,"method":"slim.request","params":["",["audiocd","history"]]}' http://127.0.0.1:$PORT/jsonrpc.js
-ls -l /run/audiocd                               # posle "Play": FLAC fajlovi kesa
+ls -l /run/audiocd                               # posle "Play": FLAC fajlovi kesa (ostaju i posle izbacivanja)
+
+# pomocni proces za drajv (status, TOC, polling na 2 s): dete LMS-a, nizak prioritet
+pgrep -a audiocd-drive                           # tacno jedan proces
+ps -o pid,ni,cls,cmd -p "$(pgrep -n audiocd-drive)"   # NI 10, cls TS
+ionice -p "$(pgrep -n audiocd-drive)"            # idle
 
 # tokom ripa (pokrenuti sa web stranice plugina):
 ps -eo pid,ni,cls,cmd | grep -E 'cyanrip|cd-paranoia|flac|cp -a' | grep -v grep   # NI 10, cls TS (nikad FF/RR)
