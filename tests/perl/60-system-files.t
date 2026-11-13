@@ -15,6 +15,20 @@ for my $f (qw(99-audiocd.rules audiocd-notify@.service tmpfiles-audiocd.conf)) {
 	ok -f "$sys/$f", "$f postoji";
 }
 
+# udev pravilo: SYSTEMD_WANTS na "change" sa stalnom instancom (@sr0) pokrece servis samo pri
+# prvoj promeni posle boot-a; zato RUN+= systemctl start --no-block za svaku promenu.
+{
+	open my $fh, '<', "$sys/99-audiocd.rules" or die $!;
+	my @rules = grep { !/^\s*(?:#|$)/ } <$fh>;
+	is scalar(@rules), 1, 'udev: jedno pravilo';
+	my $r = $rules[0] // '';
+	like $r, qr/ACTION=="change"/, 'udev: na change';
+	like $r, qr/SUBSYSTEM=="block"/, 'udev: block';
+	like $r, qr/KERNEL=="sr\[0-9\]\*"/, 'udev: sr uredjaji';
+	like $r, qr{RUN\+="/usr/bin/systemctl start --no-block audiocd-notify\@%k\.service"}, 'udev: RUN+= systemctl start --no-block';
+	unlike $r, qr/SYSTEMD_WANTS/, 'udev: bez SYSTEMD_WANTS';
+}
+
 my $tmp = tempdir(CLEANUP => 1);
 my $log = "$tmp/curl.log";
 
