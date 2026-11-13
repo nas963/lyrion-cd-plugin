@@ -10,6 +10,7 @@ use lib dirname(__FILE__) . '/lib';
 use LMSBoot;
 
 use Plugins::AudioCD::Web;
+use Plugins::AudioCD::Url;
 
 my $dir = 'lib/Plugins/AudioCD';
 my $html = "$dir/HTML/EN/plugins/AudioCD";
@@ -188,7 +189,15 @@ like($js, qr/params\.get\('player'\)|get\('player'\)/, 'JS cita ?player=');
 like($js, qr/'--background-color'/, 'JS cita Material boje (--background-color)');
 like($js, qr/'--primary-color'/, 'JS cita Material akcenat (--primary-color)');
 like($js, qr/window\.parent/, 'JS detektuje Material iframe');
-like($js, qr/stopPropagation\(\)/, 'Settings klik ne stize do Material-ovog handlera');
+like($js, qr/stopImmediatePropagation\(\)/, 'Settings klik ne stize do Material-ovog handlera');
+like($js, qr/closest\('#settings-link'\)[\s\S]*?\}, true\);/, 'Settings: capture listener na document-u');
+like($js, qr/\^\[0-9a-f\]\{2\}\(:\[0-9a-f\]\{2\}\)\{5\}\$\/i/, '?player= se validira (MAC)');
+ok(index($js, '/^[\w.:-]{1,64}$/.test(v)') >= 0, '?player= se validira (bezbedan id)');
+is(Plugins::AudioCD::Url::cover_url($id), "plugins/AudioCD/cover/cd.$id.jpg", 'Url::cover_url');
+for my $f (qw(ProtocolHandler Menu)) {
+	like(slurp("$dir/$f.pm"), qr/Plugins::AudioCD::Url::cover_url/, "$f koristi Url::cover_url");
+	unlike(slurp("$dir/$f.pm"), qr{AudioCD/cover/}, "$f ne gradi URL omota rucno");
+}
 like($js, qr/window\.open\(.*'_blank', 'noopener'\)/, 'Settings u Material-u: window.open(_blank, noopener)');
 like($page, qr/id="settings-link"[^>]*target="_blank"[^>]*rel="noopener"/, 'Settings link: target=_blank rel=noopener');
 like($css, qr/\.embedded/, 'CSS ima izgled za Material iframe');

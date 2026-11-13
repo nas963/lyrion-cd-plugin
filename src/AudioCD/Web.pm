@@ -16,6 +16,7 @@ use File::Spec ();
 use JSON::PP ();
 
 use Plugins::AudioCD::Cache;
+use Plugins::AudioCD::Url;
 
 use constant PAGE        => 'plugins/AudioCD/index.html';
 use constant COVER_PREFIX => 'plugins/AudioCD/cover/';
@@ -35,7 +36,7 @@ my $GENERIC = File::Spec->catfile($DIR, 'HTML', 'EN', 'plugins', 'AudioCD', 'cd-
 my $METACACHE;
 
 # URL omota (relativan, kako ga trazi Material); ProtocolHandler/State dodaju vodecu kosu crtu
-sub cover_url { my ($discid) = @_; return "plugins/AudioCD/cover/cd.$discid.jpg" }
+sub cover_url { return Plugins::AudioCD::Url::cover_url(@_) }
 
 # plugins/AudioCD/cover/[cd.]<discid>[_WxH[_x]].jpg -> discid | undef
 sub cover_discid {

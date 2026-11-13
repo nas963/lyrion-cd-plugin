@@ -45,6 +45,7 @@ use Slim::Utils::Timers;
 use Slim::Player::Song;
 
 use Plugins::AudioCD::Cache;
+use Plugins::AudioCD::Url;
 
 use constant WAIT_STEP => 0.5;    # sekundi izmedju provera da li je pesma izvucena
 
@@ -78,7 +79,7 @@ sub _track_meta {
 	return { disc => $disc, track => $t || {} };
 }
 
-sub cover_url { my ($class, $discid) = @_; return "/plugins/AudioCD/cover/cd.$discid.jpg" }
+sub cover_url { my ($class, $discid) = @_; return "/" . Plugins::AudioCD::Url::cover_url($discid) }
 
 # ---------- LMS handler API ----------
 

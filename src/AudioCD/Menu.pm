@@ -10,6 +10,7 @@ use utf8;
 
 use Plugins::AudioCD::Cache;
 use Plugins::AudioCD::DiscId;
+use Plugins::AudioCD::Url;
 
 use constant ICON  => 'plugins/AudioCD/cd-generic.png';
 use constant WEIGHT => 95;
@@ -100,7 +101,7 @@ sub feed {
 	}
 
 	my $discid = $snap->{discid};
-	my $image = $snap->{cover} ? "plugins/AudioCD/cover/cd.$discid.jpg" : ICON;
+	my $image = $snap->{cover} ? Plugins::AudioCD::Url::cover_url($discid) : ICON;
 	my %meta = map { ref $_ eq 'HASH' && defined $_->{n} ? ($_->{n} => $_) : () } @{ $disc->{tracks} || [] };
 
 	my @items;

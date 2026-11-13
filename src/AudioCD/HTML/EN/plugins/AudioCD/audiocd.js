@@ -66,7 +66,10 @@
   // ---------- Material Skin (iframe) ----------
 
   var FIXED_PLAYER = (function () {
-    try { return new URLSearchParams(window.location.search).get('player') || ''; } catch (e) { return ''; }
+    var v = '';
+    try { v = new URLSearchParams(window.location.search).get('player') || ''; } catch (e) { return ''; }
+    // MAC ili bezbedan LMS id; sve drugo se ignorise (prikazuje se izbor plejera)
+    return /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(v) || /^[\w.:-]{1,64}$/.test(v) ? v : '';
   })();
 
   // Roditeljski dokument (isti origin) ili null kad nismo u iframe-u ili nemamo pristup.
@@ -683,12 +686,14 @@
     }
     // Settings: samo novi tab. Material hvata klikove na veze u iframe-u i vodi iframe na njih,
     // pa u iframe-u zaustavljamo klik pre njegovog handlera i otvaramo tab sami.
-    $('settings-link').addEventListener('click', function (ev) {
-      if (!parentDoc()) return;    // klasicni web: obicna veza (target=_blank)
+    // Hvatamo u capture fazi na document-u, pa Material-ov handler ne moze da stigne prvi bez obzira na redosled.
+    document.addEventListener('click', function (ev) {
+      var a = ev.target && ev.target.closest ? ev.target.closest('#settings-link') : null;
+      if (!a || !parentDoc()) return;    // klasicni web: obicna veza (target=_blank)
       ev.preventDefault();
-      ev.stopPropagation();
-      window.open($('settings-link').href, '_blank', 'noopener');
-    });
+      ev.stopImmediatePropagation();
+      window.open(a.href, '_blank', 'noopener');
+    }, true);
     $('player').addEventListener('change', function () { if (!FIXED_PLAYER) store(PLAYER_KEY, $('player').value); setButtons(); });
     $('release').addEventListener('change', function () {
       run(function () { return cmd('select_release', 'index:' + $('release').value); });
