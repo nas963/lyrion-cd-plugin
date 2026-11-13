@@ -84,6 +84,16 @@ sub validate {
 	return (\%clean, \%err);
 }
 
+# Opcije padajucih lista profila: nazivi se prave ovde (ne u sablonu), na jeziku klijenta ako ga ima.
+sub profile_options {
+	my ($client) = @_;
+	return [ map {
+		my $tok = 'PLUGIN_AUDIOCD_UI_PROFILE_' . uc $_;
+		my $label = $client ? Slim::Utils::Strings::clientString($client, $tok) : Slim::Utils::Strings::string($tok);
+		{ value => $_, label => $label }
+	} @Plugins::AudioCD::Profiles::NAMES ];
+}
+
 # ---------- Slim::Web::Settings ----------
 
 sub name { return Slim::Web::HTTP::CSRF->protectName('PLUGIN_AUDIOCD') }
@@ -116,7 +126,7 @@ sub handler {
 	}
 
 	$params->{audiocd} = \%view;
-	$params->{audiocdProfiles} = [ @Plugins::AudioCD::Profiles::NAMES ];
+	$params->{audiocdProfiles} = profile_options($client);
 	$params->{audiocdRipsDefault} = Plugins::AudioCD::Config::default_rips_dir();
 
 	# osnovni handler samo prikazuje: cuvanje je gore (bez saveSettings ne postavlja prefs iz forme)

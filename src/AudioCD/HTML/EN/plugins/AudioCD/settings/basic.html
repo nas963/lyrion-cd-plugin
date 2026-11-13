@@ -15,7 +15,7 @@
 	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_PROFILE" desc="" %]
 		<select class="stdedit" name="pref_profile">
 			[% FOREACH p IN audiocdProfiles %]
-			<option value="[% p %]" [% IF audiocd.profile == p %]selected[% END %]>[% ('PLUGIN_AUDIOCD_UI_PROFILE_' _ p.upper) | string %]</option>
+			<option value="[% p.value | html %]" [% IF audiocd.profile == p.value %]selected[% END %]>[% p.label | html %]</option>
 			[% END %]
 		</select>
 	[% END %]
@@ -43,7 +43,7 @@
 	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_RIP_PROFILE" desc="" %]
 		<select class="stdedit" name="pref_autoRipProfile">
 			[% FOREACH p IN audiocdProfiles %]
-			<option value="[% p %]" [% IF audiocd.autoRipProfile == p %]selected[% END %]>[% ('PLUGIN_AUDIOCD_UI_PROFILE_' _ p.upper) | string %]</option>
+			<option value="[% p.value | html %]" [% IF audiocd.autoRipProfile == p.value %]selected[% END %]>[% p.label | html %]</option>
 			[% END %]
 		</select>
 	[% END %]
