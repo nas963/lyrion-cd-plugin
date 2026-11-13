@@ -35,6 +35,19 @@ like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/
 	ok($src =~ qr/device\s*=>\s*\\&_device/, 'Plugin.pm: device kao code ref');
 }
 
+# LMS daje muzicke foldere kao bajtove (encode_locale), a prefs su karakteri: dekoduju se pre poredjenja
+{
+	for my $f (qw(Plugin.pm Settings.pm)) {
+		open my $p, '<', "$dir/$f" or die $!;
+		my $src = do { local $/; <$p> };
+		my @raw = $src =~ /(=>\s*Slim::Utils::Misc::getMediaDirs|,\s*\n?\s*Slim::Utils::Misc::getMediaDirs\('audio'\)\))/g;
+		is(scalar @raw, 0, "$f: getMediaDirs se ne prosledjuje nedekodovan");
+	}
+	open my $p, '<', "$dir/Plugin.pm" or die $!;
+	my $src = do { local $/; <$p> };
+	ok($src =~ /sub media_dirs \{[^}]*utf8decode_locale/s, 'Plugin::media_dirs dekoduje (utf8decode_locale)');
+}
+
 open my $strings, '<', "$dir/strings.txt" or die $!;
 my $text = do { local $/; <$strings> };
 like $text, qr/^PLUGIN_AUDIOCD\n\tEN\t/m, 'string naziva plugina';

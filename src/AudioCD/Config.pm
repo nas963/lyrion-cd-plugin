@@ -6,6 +6,8 @@ use strict;
 use warnings;
 use utf8;
 
+use Encode ();
+
 use constant AUDIOOS_CONF  => '/etc/audioos/audioos.conf';
 use constant DEFAULTS_CONF => '/usr/local/lib/audioos/defaults.conf';
 use constant FALLBACK_RIPS => '/var/lib/squeezeboxserver/CD-Rips';
@@ -29,7 +31,8 @@ our %DEFAULTS = (
 	noRipWhileLocalPlays => 0,
 );
 
-# Cita KEY=value fajl (shell stil). Nepostojeci fajl daje {}.
+# Cita KEY=value fajl (shell stil). Nepostojeci fajl daje {}. Vrednosti su karakter stringovi
+# (UTF-8 se dekoduje; neispravan UTF-8 ostaje kako jeste), bajtovi tek na granici sa fs (Naming::fs_bytes).
 sub parse_env_file {
 	my ($path) = @_;
 	my %kv;
@@ -49,6 +52,8 @@ sub parse_env_file {
 			$val =~ s/\s+#.*\z//;    # komentar na kraju linije
 			$val =~ s/\s+\z//;
 		}
+		my $dec = eval { Encode::decode('UTF-8', $val, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+		$val = $dec if defined $dec;
 		$kv{$key} = $val;
 	}
 	close $fh;

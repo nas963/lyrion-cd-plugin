@@ -101,7 +101,7 @@ sub handler {
 
 	if ($params->{saveSettings}) {
 		my %in = map { $_ => $params->{"pref_$_"} } @SHOWN;
-		my ($clean, $err) = validate(\%in, media => Slim::Utils::Misc::getMediaDirs('audio'));
+		my ($clean, $err) = validate(\%in, media => Plugins::AudioCD::Plugin::media_dirs());
 		if (%$err) {
 			%view = (%view, %in);    # prikazuje se ono sto je korisnik uneo
 			$view{$_} = $in{$_} ? 1 : 0 for @CHECKBOX;

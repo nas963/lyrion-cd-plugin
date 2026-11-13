@@ -28,6 +28,7 @@ use Slim::Utils::Misc;
 use Slim::Utils::Prefs;
 use Slim::Utils::Strings ();
 use Slim::Utils::Timers;
+use Slim::Utils::Unicode;
 
 use Plugins::AudioCD::Cache;
 use Plugins::AudioCD::Config;
@@ -125,6 +126,12 @@ sub _io_backend {
 # ---------- pomocne ----------
 
 sub _device { my $d = $prefs->get('device'); return defined $d && length $d ? $d : '/dev/cdrom' }
+
+# LMS muzicki folderi (audio). getMediaDirs daje bajtove (encode_locale), a prefs i CLI su karakteri:
+# dekodira se ovde, bajtovi samo na granici sa fs (Naming::fs_bytes).
+sub media_dirs {
+	return [ map { Slim::Utils::Unicode::utf8decode_locale($_) } grep { defined && length } @{ Slim::Utils::Misc::getMediaDirs('audio') || [] } ];
+}
 
 sub _rips_dir { return Plugins::AudioCD::Config::rips_dir($prefs->get('ripsDir')) }
 
@@ -577,8 +584,7 @@ sub _cli_move {
 		unless $e && defined $e->{path} && ($e->{result} // '') =~ /^(?:ok|accurip_mismatch)\z/;
 
 	return _done($request, undef, { error => 'not_available' }) unless eval { require Plugins::AudioCD::Library; 1 };
-	my ($lib, $lerr) = Plugins::AudioCD::Library::library_dir(_param($request, 'dest'), $prefs->get('libraryDir'),
-		Slim::Utils::Misc::getMediaDirs('audio'));
+	my ($lib, $lerr) = Plugins::AudioCD::Library::library_dir(_param($request, 'dest'), $prefs->get('libraryDir'), media_dirs());
 	return _done($request, undef, { error => $lerr, $lerr eq 'bad_args' ? (field => 'dest') : () }) if $lerr;
 
 	my ($dest, $err) = Plugins::AudioCD::Library::plan_move($e->{path}, $lib, _rips_dir());

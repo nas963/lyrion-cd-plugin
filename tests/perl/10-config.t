@@ -3,6 +3,7 @@ use warnings;
 use utf8;
 use Test::More;
 use File::Temp qw(tempdir);
+use Encode ();
 
 use lib 'lib';
 BEGIN { use_ok('Plugins::AudioCD::Config') }
@@ -32,6 +33,24 @@ is(Plugins::AudioCD::Config::parse_env_file($p)->{CD_RIPS_DIR}, '/x', 'jednostru
 
 $p = write_conf('d.conf', "\n# samo komentar\n   \nexport A=1\nB=2\n");
 is_deeply(Plugins::AudioCD::Config::parse_env_file($p), { A => 1, B => 2 }, 'prazne i # linije se ignorisu, export se prihvata');
+
+# UTF-8 vrednosti se dekoduju (karakteri), da Naming::fs_bytes ne koduje dvaput
+{
+	my $path = "$dir/u.conf";
+	open my $fh, '>:raw', $path or die;
+	print $fh Encode::encode('UTF-8', "CD_RIPS_DIR=\"/srv/Muzika Đorđe\"\n");
+	close $fh;
+	my $v = Plugins::AudioCD::Config::parse_env_file($path)->{CD_RIPS_DIR};
+	is($v, '/srv/Muzika Đorđe', 'UTF-8 vrednost dekodovana');
+	is(length($v), 17, 'duzina u karakterima');
+	require Plugins::AudioCD::Naming;
+	is(Plugins::AudioCD::Naming::fs_bytes($v), Encode::encode('UTF-8', '/srv/Muzika Đorđe'), 'fs_bytes: kodovano jednom');
+
+	open $fh, '>:raw', "$dir/l.conf" or die;
+	print $fh "CD_RIPS_DIR=/srv/\xe9\n";    # Latin-1, nije UTF-8: ostaje kako jeste
+	close $fh;
+	is(Plugins::AudioCD::Config::parse_env_file("$dir/l.conf")->{CD_RIPS_DIR}, "/srv/\xe9", 'neispravan UTF-8: vrednost bez promene');
+}
 
 # default_rips_dir
 my $audioos  = "$dir/audioos.conf";
