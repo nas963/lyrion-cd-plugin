@@ -150,9 +150,11 @@ sub _scan_existing {
 	return;
 }
 
-# start($disc, $toc, $first_track): redosled first..last, pa 1..first-1; gotove pesme se preskacu.
+# start($disc, $toc, $first_track[, resume => 1]): redosled first..last, pa 1..first-1; gotove pesme se
+# preskacu. Eksplicitan start (Play, ensure) ponavlja i ranije neuspele pesme; resume (isti disk ponovo
+# ubacen, State::_resume_cache) izvlaci samo nedostajuce: nikad pokusane i prekinute izbacivanjem.
 sub start {
-	my ($self, $disc, $toc, $first) = @_;
+	my ($self, $disc, $toc, $first, %o) = @_;
 	my $id = ref $disc eq 'HASH' ? $disc->{discid} : undef;
 	unless (valid_discid($id) && ref $toc eq 'HASH') {
 		warn "Cache start: neispravan disk ili TOC\n";
@@ -180,13 +182,13 @@ sub start {
 		$self->_scan_existing;
 	}
 	$self->{disc}   = $disc;
-	$self->{failed} = {};
+	$self->{failed} = {} unless $o{resume};
 
 	my @audio = map { $_->{n} } Plugins::AudioCD::DiscId::audio_tracks($toc);
 	$self->{tracks} = \@audio;
 	$first = $audio[0] unless defined $first && grep { $_ == $first } @audio;
 	my $cur = $self->{current} ? $self->{current}{n} : 0;
-	$self->{queue} = [ grep { !$self->{done}{$_} && $_ != $cur } (grep { $_ >= $first } @audio), (grep { $_ < $first } @audio) ];
+	$self->{queue} = [ grep { !$self->{done}{$_} && !$self->{failed}{$_} && $_ != $cur } (grep { $_ >= $first } @audio), (grep { $_ < $first } @audio) ];
 
 	$self->_notify;
 	$self->_pump;
@@ -223,11 +225,22 @@ sub busy {
 }
 
 # Da li disk $id ima pesme koje nedostaju a izvlacenje je stalo (izbacen disk, ponovo ubacen)?
+# Neuspele pesme se ne racunaju: ponavljaju se samo na eksplicitan Play/ensure.
 sub resumable {
 	my ($self, $id) = @_;
 	return 0 unless defined $id && defined $self->{discid} && $id eq $self->{discid};
 	return 0 if $self->busy || !@{ $self->{tracks} };
-	return (grep { !$self->{done}{$_} } @{ $self->{tracks} }) ? 1 : 0;
+	return (grep { !$self->{done}{$_} && !$self->{failed}{$_} } @{ $self->{tracks} }) ? 1 : 0;
+}
+
+# Disk izvadjen: pesme koje su pukle (najcesce bas zato sto je disk izvadjen) vise se ne vode kao
+# neuspele, pa ih nastavak posle ponovnog ubacivanja izvlaci.
+sub forget_failed {
+	my ($self) = @_;
+	return unless %{ $self->{failed} };
+	$self->{failed} = {};
+	$self->_notify;
+	return;
 }
 
 sub discid { $_[0]{discid} }

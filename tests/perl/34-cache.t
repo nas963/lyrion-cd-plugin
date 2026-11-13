@@ -523,4 +523,44 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     is $c2->path($DISCID, 1), undef, 'stari disk vise nije servisan';
 }
 
+# ---- nastavak (resume) ne ponavlja neuspele pesme; eksplicitan start ih ponavlja ----
+{
+    my $dir = fresh_dir();
+    my $c = mk(dir => $dir);
+    $c->start(mkdisc(), $toc, 1);
+    finish($SPAWNS[0]);                              # 1 gotova
+    { local $SIG{__WARN__} = sub { }; finish($SPAWNS[1], 1) }    # 2 neuspela (los sektor)
+    finish($SPAWNS[2]);                              # 3 gotova
+    $c->stop;                                        # 4 prekinuta izbacivanjem, 5 nikad pokusana
+    is_deeply $c->status->{failed}, [2], 'resume: pesma 2 neuspela';
+    ok $c->resumable($DISCID), 'resume: ima nedostajucih (4, 5)';
+
+    @SPAWNS = ();
+    ok $c->start(mkdisc(), $toc, 4, resume => 1), 'resume start';
+    is_deeply [ order() ], [4], 'resume: pocinje od nedostajuce pesme';
+    finish($SPAWNS[-1]);
+    finish($SPAWNS[-1]);
+    is_deeply [ order() ], [4, 5], 'resume: neuspela pesma 2 se ne ponavlja';
+    ok !$c->busy, 'resume: gotovo';
+    is_deeply $c->status->{failed}, [2], 'resume: pesma 2 ostaje neuspela';
+    ok !$c->resumable($DISCID), 'resumable: samo neuspele pesme fale -> ne';
+
+    # eksplicitan Play/ensure: neuspela pesma se ponavlja
+    @SPAWNS = ();
+    ok $c->start(mkdisc(), $toc, 2), 'eksplicitan start';
+    is_deeply [ order() ], [2], 'eksplicitan start: neuspela pesma se ponavlja';
+    is_deeply $c->status->{failed}, [], 'eksplicitan start: failed obrisan';
+    finish($SPAWNS[-1]);
+
+    # izbacivanje: greske nastale jer je disk izvadjen se zaboravljaju (forget_failed)
+    my $c2 = mk(dir => fresh_dir());
+    $c2->start(mkdisc(), $toc, 1);
+    { local $SIG{__WARN__} = sub { }; finish($SPAWNS[-1], 1) for 1 .. 5 }
+    is_deeply $c2->status->{failed}, [1 .. 5], 'disk izvadjen: sve pesme pukle';
+    ok !$c2->resumable($DISCID), 'pre forget_failed: nije resumable';
+    $c2->forget_failed;
+    is_deeply $c2->status->{failed}, [], 'forget_failed brise neuspehe';
+    ok $c2->resumable($DISCID), 'posle forget_failed: resumable';
+}
+
 done_testing;
