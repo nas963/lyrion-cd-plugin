@@ -20,7 +20,8 @@ systemctl cat lyrionmusicserver >/dev/null 2>&1 || { echo "Nije nadjen servis ly
 
 echo "Ova instalacija na kraju restartuje Lyrion (reprodukcija se prekida)."
 
-trap 'echo "GREŠKA: instalacija nije završena. Vraćanje: sudo bash $STAGE/uninstall.sh"' ERR
+# Paket je u privremenom folderu koji get.sh brise na izlazu: vracanje ide preko get.sh.
+trap 'echo "GREŠKA: instalacija nije završena. Vraćanje: curl -fsSL https://github.com/nas963/lyrion-cd-plugin/releases/latest/download/get.sh | sudo bash -s uninstall"' ERR
 
 # Plugin: vlasnik squeezeboxserver, folderi 755, fajlovi 644.
 mkdir -p "$PLUGIN_ROOT"

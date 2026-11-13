@@ -50,6 +50,16 @@ for my $f (qw(get.sh install.sh uninstall.sh)) {
 	like $out, qr/RAN-install/, 'get.sh: pokrece install.sh';
 }
 
+# install.sh: ERR poruka ne pokazuje na privremeni folder paketa (get.sh ga brise na izlazu)
+{
+	open my $fh, '<', "$pk/install.sh" or die $!;
+	my ($trap) = grep { /^\s*trap .* ERR\s*$/ } <$fh>;
+	ok defined $trap, 'install.sh: ERR trap postoji';
+	unlike $trap // '', qr/\$STAGE/, 'ERR trap: bez $STAGE putanje';
+	like $trap // '', qr{curl -fsSL https://github\.com/nas963/lyrion-cd-plugin/releases/latest/download/get\.sh \| sudo bash -s uninstall},
+		'ERR trap: vracanje preko get.sh uninstall';
+}
+
 # install.sh i uninstall.sh bez root-a
 SKIP: {
 	skip 'pokrenuto kao root', 4 if $> == 0;
