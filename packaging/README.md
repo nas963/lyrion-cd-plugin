@@ -6,7 +6,7 @@ Plugin koji pretvara Lyrion server sa CD uređajem u pravi CD plejer i uređaj z
 - **Automatsko čitanje diska.** Kad ubaciš CD, plugin pročita sadržaj i potraži podatke (MusicBrainz, zatim GnuDB, a ako disk ima i CD-Text). Dobiješ naslov albuma, izvođača, pesme i omot. Ako MusicBrainz nađe samo približno poklapanje, ponudi se izbor izdanja.
 - **Slušanje.** Pesme se prvo čitaju u keš u RAM-u (`/run/audiocd`), pa se sviraju odatle: bit-perfect i bez prekida između pesama (gapless).
 - **Snimanje.** Album se snima programom `cyanrip` u FLAC, u tri profila: brz (`fast`), uravnotežen (`balanced`) i siguran (`secure`, sa više ponovnih čitanja i manjom brzinom). Rezultat se proverava preko AccurateRip baze.
-- **Premeštanje u biblioteku.** Snimljeni album jednim klikom ide u tvoj muzički folder, pa ga Lyrion skenira.
+- **Premeštanje u biblioteku.** Snimljeni album jednim klikom ide u tvoj muzički folder, pa ga Lyrion skenira (ako Lyrion baš tada skenira biblioteku, skeniranje albuma čeka da to završi, najviše 30 minuta).
 - **Material Skin.** CD se pojavljuje na početnom ekranu Materiala, sa omotom, listom pesama i dugmadima za sviranje, snimanje i izbacivanje.
 
 Jezik ekrana prati jezik Lyriona (srpski ili engleski).

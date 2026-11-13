@@ -227,4 +227,33 @@ sub rescan_cmd {
 	return [ 'rescan', 'full', "file://$url" ];
 }
 
+use constant RESCAN_STEP => 30;      # s izmedju provera da li LMS jos skenira
+use constant RESCAN_MAX  => 1800;    # s, najduze cekanje
+
+# rescan_when_idle($dest, still_scanning => sub, timer => sub($s, $cb), run => sub(\@cmd), log => sub($msg))
+# LMS preskace (bez poruke) rescan dok traje drugo skeniranje: tada se ceka da skeniranje zavrsi
+# (provera na RESCAN_STEP s, najvise RESCAN_MAX s), pa se skenira samo taj folder; posle roka odustaje.
+sub rescan_when_idle {
+	my ($dest, %o) = @_;
+	my $cmd = rescan_cmd($dest);
+	my $log = $o{log} || sub { };
+	my $waited = 0;
+	my $try;
+	$try = sub {
+		unless ($o{still_scanning}->()) {
+			undef $try;
+			return $o{run}->($cmd);
+		}
+		if ($waited >= RESCAN_MAX) {
+			undef $try;
+			return $log->("skeniranje $dest nije pokrenuto: LMS skenira duze od " . RESCAN_MAX . " s, odustajem");
+		}
+		$log->("skeniranje $dest ceka da LMS zavrsi tekuce skeniranje") unless $waited;
+		$waited += RESCAN_STEP;
+		$o{timer}->(RESCAN_STEP, $try);
+	};
+	$try->();
+	return;
+}
+
 1;

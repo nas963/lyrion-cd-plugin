@@ -240,4 +240,43 @@ is_deeply $L->can('rescan_cmd')->('/mnt/m/CD/Đ B/Album #1'),
 	is_deeply [ $f->(undef, undef, []) ], [ undef, 'bad_args' ], 'library_dir: nema muzickih foldera';
 }
 
+# rescan_when_idle: LMS preskace rescan dok traje drugo skeniranje -> ceka se kraj (najvise 30 min)
+{
+	my $f = $L->can('rescan_when_idle');
+	ok $f, 'rescan_when_idle postoji';
+	my (@ran, @timers, @logs);
+	my $scanning = 0;
+	my %o = (
+		still_scanning => sub { $scanning },
+		timer          => sub { push @timers, [@_] },
+		run            => sub { push @ran, $_[0] },
+		log            => sub { push @logs, $_[0] },
+	);
+	$f->('/m/A', %o);
+	is_deeply \@ran, [ [ 'rescan', 'full', 'file:///m/A' ] ], 'bez skeniranja: odmah';
+	is scalar(@timers), 0, 'bez tajmera';
+
+	@ran = ();
+	$scanning = 1;
+	$f->('/m/B', %o);
+	is scalar(@ran), 0, 'skeniranje u toku: ne pokrece se';
+	is scalar(@timers), 1, 'ceka (tajmer)';
+	is $timers[0][0], 30, 'provera na 30 s';
+	ok scalar(grep { /ceka/ } @logs), 'zabelezeno u logu';
+	$timers[0][1]->();
+	is scalar(@ran), 0, 'i dalje skenira: ne pokrece se';
+	$scanning = 0;
+	$timers[-1][1]->();
+	is_deeply \@ran, [ [ 'rescan', 'full', 'file:///m/B' ] ], 'skeniranje zavrseno: pokrece se jednom';
+
+	# najvise 30 min: posle toga odustaje i belezi
+	@ran = (); @timers = (); @logs = ();
+	$scanning = 1;
+	$f->('/m/C', %o);
+	$timers[-1][1]->() for 1 .. 60;
+	is scalar(@ran), 0, 'posle 30 min: ne pokrece se';
+	is scalar(@timers), 60, '60 provera po 30 s';
+	ok scalar(grep { /odustajem|nije pokrenut/ } @logs), 'odustajanje zabelezeno';
+}
+
 done_testing;

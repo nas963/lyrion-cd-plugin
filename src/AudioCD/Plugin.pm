@@ -18,6 +18,7 @@ use Time::HiRes ();
 
 use Slim::Control::Request;
 use Slim::Menu::BrowseLibrary;
+use Slim::Music::Import;
 use Slim::Networking::Select;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::Client;
@@ -625,7 +626,13 @@ sub _cli_move {
 			$log->warn("premestanje u biblioteku: $warn") if $warn;
 			$RIPPER->update_path($id, $dest);
 			$STATE->on_rip_change if $STATE;
-			Slim::Control::Request::executeRequest(undef, Plugins::AudioCD::Library::rescan_cmd($dest));
+			# LMS preskace rescan dok traje drugo skeniranje: ceka se kraj (najvise 30 min)
+			Plugins::AudioCD::Library::rescan_when_idle($dest,
+				still_scanning => sub { eval { Slim::Music::Import->stillScanning } ? 1 : 0 },
+				timer          => sub { _timer(@_); return },
+				run            => sub { Slim::Control::Request::executeRequest(undef, $_[0]) },
+				log            => sub { $log->warn($_[0]) },
+			);
 		},
 	);
 	# greska koja je nastala odmah (busy, exists, mkdir...) ide u odgovor
