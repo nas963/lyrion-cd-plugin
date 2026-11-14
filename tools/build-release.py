@@ -7,9 +7,12 @@ import hashlib
 import pathlib
 import re
 import sys
+import time
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# Vreme pravljenja, ne fiksni datum: LMS osvezava kes stringova samo kad strings.txt postane noviji.
+BUILD_TIME = time.localtime()[:6]
 PLUGIN = ROOT / 'src' / 'AudioCD'
 SYSTEM = ROOT / 'system'
 # Fajlovi u system/ nemaju sufiks (audiocd-notify) ili imaju .rules/.service/.conf.
@@ -25,7 +28,7 @@ def lf_bytes(path):
 
 
 def add(out, name, data, executable=False):
-    info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+    info = zipfile.ZipInfo(name, date_time=BUILD_TIME)
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = (0o755 if executable else 0o644) << 16
     out.writestr(info, data)
