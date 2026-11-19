@@ -6,7 +6,7 @@ Plugin koji pretvara Lyrion server sa CD uređajem u pravi CD plejer i uređaj z
 - **Automatsko čitanje diska.** Kad ubaciš CD, plugin pročita sadržaj i potraži podatke (MusicBrainz, zatim GnuDB, a ako disk ima i CD-Text). Dobiješ naslov albuma, izvođača, pesme i omot. Ako MusicBrainz nađe samo približno poklapanje, ponudi se izbor izdanja.
 - **Slušanje.** Pesme se prvo čitaju u keš u RAM-u (`/run/audiocd`), pa se sviraju odatle: bit-perfect i bez prekida između pesama (gapless).
 - **Snimanje.** Album se snima programom `cyanrip` u FLAC, u tri profila: brz (`fast`), uravnotežen (`balanced`) i siguran (`secure`, sa više ponovnih čitanja i manjom brzinom). Rezultat se proverava preko AccurateRip baze.
-- **Premeštanje u biblioteku.** Snimljeni album jednim klikom ide u tvoj muzički folder, pa ga Lyrion skenira (ako Lyrion baš tada skenira biblioteku, skeniranje albuma čeka da to završi, najviše 30 minuta).
+- **Premeštanje u biblioteku.** Biraš gde ide snimljeni album: glavni muzički folder (npr. CD, SACD, Hi-Res), pa folder izvođača (postojeći ili nov) i naziv foldera albuma. Lyrion zatim skenira samo taj folder (ako baš tada skenira biblioteku, skeniranje albuma čeka da to završi, najviše 30 minuta). Postojeći folder se nikad ne prepisuje.
 - **Material Skin.** CD se pojavljuje na početnom ekranu Materiala, sa omotom, listom pesama i dugmadima za sviranje, snimanje i izbacivanje. U meniju **Audio CD** (Moja muzika) disk je jedna stavka: otvori je i dobićeš listu pesama sa dugmadima **Play** i **Add** u zaglavlju. Pored diska su stavke **Ripuj** i **Eject**. Stranica plugina otvorena iz Materiala prati njegovu temu (svetla/tamna), svira na plejeru izabranom u Materialu (bez posebnog izbora plejera), a **Podešavanja** se otvaraju u novom tabu.
 
 Jezik ekrana prati jezik Lyriona (srpski ili engleski).
@@ -42,7 +42,7 @@ Lyrion: Podešavanja, Dodaci, **AudioCD**.
 |---|---|---|
 | Uređaj | `/dev/cdrom` | CD uređaj |
 | Folder za snimke | (prazno) | vidi ispod |
-| Folder biblioteke | (prazno) | gde se albumi premeštaju; prazno = prvi muzički folder Lyriona |
+| Folder biblioteke | (prazno) | gde se album premešta bez izbora (stari način, za komandnu liniju); na stranici se odredište bira u dijalogu |
 | Profil | uravnotežen | profil snimanja |
 | Tihi drajv | isključeno | smanji brzinu čitanja |
 | Brzina tihog drajva | 8 | brzina (x) kad je tihi drajv uključen |

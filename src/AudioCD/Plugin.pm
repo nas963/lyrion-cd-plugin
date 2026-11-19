@@ -477,6 +477,8 @@ sub initPlugin {
 		select_release => [ 0, 0, 1, \&_cli_select_release ],
 		edit           => [ 0, 0, 1, \&_cli_edit ],
 		move           => [ 0, 0, 1, \&_cli_move ],
+		browse         => [ 0, 1, 1, \&_cli_browse ],
+		mkdir          => [ 0, 0, 1, \&_cli_mkdir ],
 		history        => [ 0, 1, 1, \&_cli_history ],
 	);
 	Slim::Control::Request::addDispatch([ 'audiocd', $_ ], $cmd{$_}) for keys %cmd;
@@ -637,10 +639,16 @@ sub _cli_move {
 		unless $e && defined $e->{path} && ($e->{result} // '') =~ /^(?:ok|accurip_mismatch)\z/;
 
 	return _done($request, undef, { error => 'not_available' }) unless eval { require Plugins::AudioCD::Library; 1 };
-	my ($lib, $lerr) = Plugins::AudioCD::Library::library_dir(_param($request, 'dest'), $prefs->get('libraryDir'), media_dirs());
-	return _done($request, undef, { error => $lerr, $lerr eq 'bad_args' ? (field => 'dest') : () }) if $lerr;
-
-	my ($dest, $err) = Plugins::AudioCD::Library::plan_move($e->{path}, $lib, _rips_dir());
+	my ($dest, $err);
+	if (defined(my $dir = _param($request, 'dir'))) {
+		# izabrani folder (npr. <Muzika>/CD/<Izvodjac>) + ime foldera albuma
+		($dest, $err) = Plugins::AudioCD::Library::plan_move_to($e->{path}, $dir, _param($request, 'name'), _rips_dir(), media_dirs());
+	}
+	else {
+		my ($lib, $lerr) = Plugins::AudioCD::Library::library_dir(_param($request, 'dest'), $prefs->get('libraryDir'), media_dirs());
+		return _done($request, undef, { error => $lerr, $lerr eq 'bad_args' ? (field => 'dest') : () }) if $lerr;
+		($dest, $err) = Plugins::AudioCD::Library::plan_move($e->{path}, $lib, _rips_dir());
+	}
 	return _done($request, undef, { error => $err }) if $err;
 	return _done($request, undef, { error => 'busy' }) if $MOVING{$id};
 
@@ -689,6 +697,25 @@ sub _cli_move {
 	# greska koja je nastala odmah (busy, exists, mkdir...) ide u odgovor
 	return _done($request, undef, { error => $sync[1] || 'move_failed' }) if @sync && !$sync[0];
 	_done($request, 1, undef, started => 1, dest => $dest, $sync[2] ? (warning => $sync[2]) : ());
+}
+
+# Pregled foldera biblioteke za izbor odredista (path prazan = muzicki folderi).
+sub _cli_browse {
+	my ($request) = @_;
+	require Plugins::AudioCD::Library;
+	my ($b, $err) = Plugins::AudioCD::Library::browse(_param($request, 'path'), media_dirs());
+	return _done($request, undef, { error => $err }) unless $b;
+	$request->addResult($_ => $b->{$_}) for grep { defined $b->{$_} } qw(path parent roots dirs truncated);
+	$request->addResult(libraryDir => $prefs->get('libraryDir')) if $prefs->get('libraryDir');
+	$request->setStatusDone;
+	return;
+}
+
+sub _cli_mkdir {
+	my ($request) = @_;
+	require Plugins::AudioCD::Library;
+	my ($dir, $err) = Plugins::AudioCD::Library::make_dir(_param($request, 'path'), _param($request, 'name'), media_dirs());
+	_done($request, $dir ? 1 : undef, $dir ? undef : { error => $err }, $dir ? (path => $dir) : ());
 }
 
 1;

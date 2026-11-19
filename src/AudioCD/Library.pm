@@ -52,6 +52,84 @@ sub plan_move {
 	return ($dest, undef);
 }
 
+# ---------- izbor odredista (pregled foldera biblioteke) ----------
+
+# Putanja je ispravna i lezi u nekom muzickom folderu (ili je to sam muzicki folder).
+# -> ociscena putanja | undef
+sub in_library {
+	my ($path, $media) = @_;
+	return undef unless defined $path && $path =~ m{^/} && $path !~ m{(?:^|/)\.\.?(?:/|\z)} && $path !~ /[\x00-\x1f]/;
+	my $p = _clean($path);
+	my @m = map { _clean($_) } grep { defined && length } @{ $media || [] };
+	return (grep { $p eq $_ || index($p, "$_/") == 0 } @m) ? $p : undef;
+}
+
+# browse($path, \@muzicki_folderi, limit => 5000)
+# -> ({ path, parent, roots => [...], dirs => [ { name, path } ], truncated }, undef) | (undef, $err)
+# Bez putanje: koreni su muzicki folderi. Skriveni folderi (.xxx) se ne prikazuju. Sortirano bez obzira
+# na velika/mala slova.
+sub browse {
+	my ($path, $media, %o) = @_;
+	my @m = map { _clean($_) } grep { defined && length } @{ $media || [] };
+	return (undef, 'no_library') unless @m;
+	if (!defined $path || !length $path) {
+		return ({ path => '', parent => undef, roots => \@m, dirs => [ map { { name => $_, path => $_ } } grep { -d _fs($_) } @m ] }, undef);
+	}
+	my $p = in_library($path, \@m) or return (undef, 'outside_library');
+	opendir(my $dh, _fs($p)) or return (undef, 'not_found');
+	my @names;
+	while (defined(my $n = readdir $dh)) {
+		next if $n =~ /\A\./;
+		my $full = _fs($p) . "/$n";
+		next unless -d $full;
+		my $dec = eval { Encode::decode('UTF-8', $n, Encode::FB_CROAK | Encode::LEAVE_SRC) };
+		push @names, defined $dec ? $dec : Encode::decode('ISO-8859-1', $n);
+	}
+	closedir $dh;
+	@names = sort { lc($a) cmp lc($b) || $a cmp $b } @names;
+	my $limit = $o{limit} || 5000;
+	my $trunc = @names > $limit ? 1 : 0;
+	splice(@names, $limit) if $trunc;
+	my $parent;
+	unless (grep { $_ eq $p } @m) { ($parent = $p) =~ s{/[^/]*\z}{} }
+	return ({ path => $p, parent => $parent, roots => \@m, dirs => [ map { { name => $_, path => "$p/$_" } } @names ],
+		truncated => $trunc }, undef);
+}
+
+# make_dir($parent, $name, \@muzicki_folderi) -> ($nova_putanja, undef) | (undef, $err)
+# Ime prolazi kroz Naming::sanitize (bezbedno za Windows/Sambu); postojeci folder je ok (vraca se).
+sub make_dir {
+	my ($parent, $name, $media) = @_;
+	my $p = in_library($parent, $media) or return (undef, 'outside_library');
+	return (undef, 'bad_name') unless defined $name && $name =~ /\S/;
+	my $clean = Plugins::AudioCD::Naming::sanitize($name);
+	my $dest = "$p/$clean";
+	return ($dest, undef) if -d _fs($dest);
+	return (undef, 'exists') if -e _fs($dest);
+	return (undef, 'not_found') unless -d _fs($p);
+	mkdir(_fs($dest), 0755) or return (undef, 'mkdir_failed');
+	return ($dest, undef);
+}
+
+# plan_move_to($src_album_dir, $odredisni_folder, $ime, $rips_root, \@muzicki_folderi) -> ($dest, $err)
+# Odrediste je <izabrani folder>/<ime> (ime podrazumevano = ime foldera rip-a); nikad se ne prepisuje.
+sub plan_move_to {
+	my ($src, $dir, $name, $rips, $media) = @_;
+	return (undef, 'outside_rips') unless defined $src && defined $rips && length $src && length $rips;
+	($src, $rips) = map { _clean($_) } ($src, $rips);
+	return (undef, 'outside_rips') if $src =~ m{(?:^|/)\.\.?(?:/|\z)};
+	return (undef, 'outside_rips') unless index($src, "$rips/") == 0 && length($src) > length($rips) + 1;
+	return (undef, 'not_found') unless -d _fs($src);
+	my $d = in_library($dir, $media) or return (undef, 'outside_library');
+	return (undef, 'not_found') unless -d _fs($d);
+	(my $base = $src) =~ s{\A.*/}{};
+	my $n = defined $name && $name =~ /\S/ ? Plugins::AudioCD::Naming::sanitize($name) : $base;
+	my $dest = "$d/$n";
+	return (undef, 'same') if $dest eq $src;
+	return (undef, 'exists') if -e _fs($dest) || -l _fs($dest);
+	return ($dest, undef);
+}
+
 # Svi fajlovi i folderi ispod $dir (relativno), folderi pre sadrzaja.
 sub _walk {
 	my ($dir, $rel, $out) = @_;

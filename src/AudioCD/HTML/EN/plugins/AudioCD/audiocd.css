@@ -219,3 +219,21 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
   .buttons button { flex: 1 1 auto; }
   .tracks li { grid-template-columns: 1.6rem minmax(0, 1fr) auto auto; gap: 6px; }
 }
+
+/* izbor foldera biblioteke (folderpick.js) */
+.fp-dialog { width: min(640px, 94vw); }
+.fp-form h3 { margin-top: 0; }
+.fp-nav { display: flex; gap: 6px; margin-bottom: 6px; }
+.fp-path { font-family: ui-monospace, monospace; font-size: 0.85rem; color: var(--muted); word-break: break-all; margin: 4px 0 8px; }
+.fp-filter, .fp-new, .fp-name { width: 100%; box-sizing: border-box; }
+.fp-list { list-style: none; margin: 8px 0; padding: 0; max-height: 40vh; overflow-y: auto; border: 1px solid var(--line, rgba(127,127,127,.3)); border-radius: 6px; }
+.fp-list li + li { border-top: 1px solid var(--line, rgba(127,127,127,.2)); }
+.fp-dir { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 7px 10px; color: inherit; cursor: pointer; font: inherit; }
+.fp-dir:hover { background: rgba(127,127,127,.12); }
+.fp-hit .fp-dir { font-weight: 600; }
+.fp-info { font-size: 0.85rem; color: var(--muted); min-height: 1em; }
+.fp-row { display: flex; gap: 6px; margin: 8px 0; }
+.fp-label { display: block; font-size: 0.9rem; color: var(--muted); margin: 8px 0 3px; }
+.fp-dest { font-size: 0.85rem; margin-top: 8px; word-break: break-all; }
+.fp-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.fp-small { padding: 4px 10px; }

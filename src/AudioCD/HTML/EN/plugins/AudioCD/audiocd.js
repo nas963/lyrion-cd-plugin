@@ -592,9 +592,16 @@
     });
   }
 
+  // Izbor odredista (glavni folder -> izvodjac -> ime foldera albuma), pa premestanje.
   function moveToLibrary(e) {
-    if (!window.confirm(t('UI_MOVE_CONFIRM', [who(e)]))) return;
-    run(function () { return cmd('move', 'id:' + e.id); }, t('UI_MOVE_STARTED'));
+    var base = String(e.path || '').replace(/\/+$/, '').replace(/^.*\//, '');
+    window.FolderPicker.open({
+      prefix: 'audiocd', t: t, artist: e.artist || '', name: base, start: CFG.libraryDir || '',
+      rpc: function (args) { return rpc('', args); },
+      onPick: function (dir, name) {
+        run(function () { return cmd('move', 'id:' + e.id, 'dir:' + dir, 'name:' + name); }, t('UI_MOVE_STARTED'));
+      }
+    });
   }
 
   function eject() {

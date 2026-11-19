@@ -641,3 +641,59 @@ PLUGIN_AUDIOCD_ERR_HELPER
 PLUGIN_AUDIOCD_ERR_DRIVE_TIMEOUT
 	EN	The CD drive did not answer in time. Try again.
 	SR	CD drajv nije odgovorio na vreme. Pokušajte ponovo.
+
+PLUGIN_AUDIOCD_UI_PICK_TITLE
+	EN	Move to library
+	SR	Premesti u biblioteku
+
+PLUGIN_AUDIOCD_UI_PICK_UP
+	EN	Up
+	SR	Gore
+
+PLUGIN_AUDIOCD_UI_PICK_ROOTS
+	EN	Music folders
+	SR	Muzički folderi
+
+PLUGIN_AUDIOCD_UI_PICK_FILTER
+	EN	Filter folders (e.g. artist name)
+	SR	Filtriraj foldere (npr. ime izvođača)
+
+PLUGIN_AUDIOCD_UI_PICK_NEW
+	EN	New folder in this location
+	SR	Nov folder na ovom mestu
+
+PLUGIN_AUDIOCD_UI_PICK_CREATE
+	EN	Create
+	SR	Napravi
+
+PLUGIN_AUDIOCD_UI_PICK_NAME
+	EN	Album folder name
+	SR	Naziv foldera albuma
+
+PLUGIN_AUDIOCD_UI_PICK_DEST
+	EN	Destination:
+	SR	Odredište:
+
+PLUGIN_AUDIOCD_UI_PICK_MOVE
+	EN	Move here
+	SR	Premesti ovde
+
+PLUGIN_AUDIOCD_UI_PICK_EMPTY
+	EN	No subfolders.
+	SR	Nema podfoldera.
+
+PLUGIN_AUDIOCD_UI_PICK_CHOOSE_FOLDER
+	EN	Open a music folder, then the artist folder.
+	SR	Otvori muzički folder, pa folder izvođača.
+
+PLUGIN_AUDIOCD_ERR_BAD_NAME
+	EN	Enter a folder name.
+	SR	Upiši naziv foldera.
+
+PLUGIN_AUDIOCD_ERR_SAME
+	EN	The album is already in that folder.
+	SR	Album je već u tom folderu.
+
+PLUGIN_AUDIOCD_ERR_NO_LIBRARY
+	EN	Lyrion has no music folder set.
+	SR	Lyrion nema podešen muzički folder.

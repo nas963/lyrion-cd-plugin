@@ -6,7 +6,7 @@ A plugin that turns a Lyrion server with an optical drive into a proper CD playe
 - **Automatic disc reading.** When you insert a CD, the plugin reads its table of contents and looks the disc up (MusicBrainz, then GnuDB, plus CD-Text if the disc has it). You get album title, artist, tracks and cover art. If MusicBrainz finds only a fuzzy match, you are offered a choice of releases.
 - **Playback.** Tracks are first read into a RAM cache (`/run/audiocd`) and played from there: bit-perfect and gapless.
 - **Ripping.** The album is ripped to FLAC with `cyanrip` in three profiles: `fast`, `balanced` and `secure` (more retries, lower speed). The result is checked against the AccurateRip database.
-- **Move to library.** A ripped album goes to your music folder with one click, and Lyrion scans it (if Lyrion is already scanning the library, the album scan waits for it to finish, at most 30 minutes).
+- **Move to library.** You choose where a ripped album goes: a main music folder (e.g. CD, SACD, Hi-Res), then the artist folder (existing or new) and the album folder name. Lyrion then scans only that folder (if it is already scanning the library, the album scan waits for it to finish, at most 30 minutes). An existing folder is never overwritten.
 - **Material Skin.** The CD appears on the Material home screen with cover, track list and buttons for play, rip and eject. In the **Audio CD** menu (My Music) the disc is a single item: open it to get the track list with **Play** and **Add** in the header. Next to the disc are the **Rip** and **Eject** items. The plugin page opened from Material follows its theme (light/dark), plays on the player selected in Material (no separate player picker), and **Settings** opens in a new tab.
 
 The UI language follows the Lyrion language (Serbian or English).
@@ -42,7 +42,7 @@ Lyrion: Settings, Plugins, **AudioCD**.
 |---|---|---|
 | Device | `/dev/cdrom` | CD device |
 | Rips folder | (empty) | see below |
-| Library folder | (empty) | where albums are moved; empty = first Lyrion music folder |
+| Library folder | (empty) | destination for moves without a choice (old way, command line); the page lets you pick the destination in a dialog |
 | Profile | balanced | ripping profile |
 | Quiet drive | off | lower the read speed |
 | Quiet drive speed | 8 | speed (x) when quiet drive is on |

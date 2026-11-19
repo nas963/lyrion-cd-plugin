@@ -102,7 +102,7 @@ sub ui_strings {
 # Kes-busting za JS/CSS: LMS salje staticke fajlove sa max-age od nedelju dana.
 sub _stamp {
 	my $m = 0;
-	for my $f (qw(audiocd.js audiocd.css)) {
+	for my $f (qw(audiocd.js audiocd.css folderpick.js)) {
 		my $t = (stat File::Spec->catfile($DIR, 'HTML', 'EN', 'plugins', 'AudioCD', $f))[9];
 		$m = $t if $t && $t > $m;
 	}
@@ -130,6 +130,7 @@ sub init {
 				ripsDir       => Plugins::AudioCD::Config::rips_dir($prefs->get('ripsDir')),
 				profile       => $prefs->get('profile') // 'balanced',
 				ejectAfterRip => $prefs->get('ejectAfterRip') ? 1 : 0,
+				libraryDir    => $prefs->get('libraryDir') // '',
 			},
 		});
 		$params->{audiocdStamp} = _stamp();
