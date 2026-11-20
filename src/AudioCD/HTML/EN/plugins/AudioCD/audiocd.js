@@ -594,7 +594,7 @@
 
   // Izbor odredista (glavni folder -> izvodjac -> ime foldera albuma), pa premestanje.
   function moveToLibrary(e) {
-    var base = String(e.path || '').replace(/\/+$/, '').replace(/^.*\//, '');
+    var base = String(e.path || '').replace(/\/+$/, '').replace(/^.*\//, '').replace(/ \(\d+\)$/, '');    // bez " (2)" ponovljenog ripa
     window.FolderPicker.open({
       prefix: 'audiocd', t: t, artist: e.artist || '', name: base, start: CFG.libraryDir || '',
       rpc: function (args) { return rpc('', args); },
