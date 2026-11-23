@@ -195,7 +195,15 @@ for my $k (qw(UI_PAUSE UI_RESUME UI_STOP UI_NOW_PLAYING UI_NOW_PAUSED UI_RIP_STO
 	ok($have{"PLUGIN_AUDIOCD_$k"}, "tekst $k postoji");
 	like($js, qr/'\Q$k\E'/, "JS koristi $k");
 }
-for my $cmdname (qw(status history load play rip cancel eject select_release edit move)) {
+# Brisanje istorije: dugme uz naslov, potvrda, komanda history_clear (registrovana u Plugin.pm)
+like($page, qr/id="hist-clear"[^>]*hidden/, 'Obrisi istoriju: sakriveno dok je istorija prazna');
+like($js, qr/window\.confirm\(t\('UI_HISTORY_CLEAR_CONFIRM'\)\)/, 'Obrisi istoriju trazi potvrdu');
+like(slurp("$dir/Plugin.pm"), qr/history_clear\s*=>\s*\[ 0, 0, 1, \\&_cli_history_clear \]/, 'CLI audiocd history_clear');
+for my $k (qw(UI_HISTORY_CLEAR UI_HISTORY_CLEAR_CONFIRM UI_HISTORY_CLEARED)) {
+	ok($have{"PLUGIN_AUDIOCD_$k"}, "tekst $k postoji");
+	like($js, qr/'\Q$k\E'/, "JS koristi $k");
+}
+for my $cmdname (qw(status history history_clear load play rip cancel eject select_release edit move)) {
 	like($js, qr/\Q'$cmdname'\E/, "JS poziva audiocd $cmdname");
 }
 like($js, qr/\['players', 0, 99\]/, 'plejeri preko ["players",0,99]');

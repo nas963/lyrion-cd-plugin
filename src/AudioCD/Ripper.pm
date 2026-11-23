@@ -166,6 +166,19 @@ sub busy {
 
 sub history { return [ @{ $_[0]{history} } ] }
 
+# clear_history([keep => sub($entry) -> 0|1]) -> broj obrisanih. Brise samo unose istorije (i fajl
+# istorije), nikad snimljene albume na disku; keep cuva unose (npr. premestanje u biblioteku u toku).
+sub clear_history {
+    my ($self, %o) = @_;
+    my @keep = $o{keep} ? grep { $o{keep}->($_) } @{ $self->{history} } : ();
+    my $removed = @{ $self->{history} } - @keep;
+    return 0 unless $removed;
+    $self->{history} = \@keep;
+    $self->_save_history;
+    $self->_notify;
+    return $removed;
+}
+
 # Posle premestanja u biblioteku istorija pokazuje na novu putanju.
 sub update_path {
     my ($self, $id, $path) = @_;

@@ -171,6 +171,28 @@ sub mk {
     unlike($cue, qr/FILE "\d+\.flac"/, '12 pesama: nema starih imena u cue');
 }
 
+# ---- brisanje istorije: unosi i fajl istorije, albumi ostaju; keep cuva izabrane ----
+{
+    my $rips = fresh_rips();
+    my $hist = "$rips/history.json";
+    @SPAWNS = ();
+    $AUTO = sub { write_rip($_[0]); $_[0]{on_exit}->(0) };
+    my $r = mk(hist => $hist);
+    $r->enqueue(disc => mkdisc(album => 'Prvi'), toc => $toc, rips_dir => $rips);
+    $r->enqueue(disc => mkdisc(album => 'Drugi', discid => 'y' x 28), toc => $toc, rips_dir => $rips);
+    is(scalar @{ $r->history }, 2, 'istorija: dva unosa');
+    my $keep_id = $r->history->[0]{id};
+    @CHANGES = ();
+    is($r->clear_history(keep => sub { $_[0]{id} eq $keep_id }), 1, 'clear_history(keep): obrisan jedan');
+    is_deeply([ map { $_->{id} } @{ $r->history } ], [$keep_id], 'clear_history(keep): ostaje izabrani');
+    ok(scalar @CHANGES, 'clear_history javlja promenu');
+    is($r->clear_history, 1, 'clear_history: obrisan i poslednji');
+    is_deeply($r->history, [], 'istorija prazna');
+    is($r->clear_history, 0, 'prazna istorija: nista za brisanje');
+    ok(-f "$rips/Izvođač/Prvi/01 - Naslov 1.flac" && -f "$rips/Izvođač/Drugi/01 - Naslov 1.flac", 'albumi ostaju na disku');
+    is_deeply(mk(hist => $hist)->history, [], 'prazna istorija sacuvana u fajlu');
+}
+
 # ---- postojeci Album -> Album (2); vise diskova ----
 {
     my $rips = fresh_rips();

@@ -480,6 +480,7 @@ sub initPlugin {
 		browse         => [ 0, 1, 1, \&_cli_browse ],
 		mkdir          => [ 0, 0, 1, \&_cli_mkdir ],
 		history        => [ 0, 1, 1, \&_cli_history ],
+		history_clear  => [ 0, 0, 1, \&_cli_history_clear ],
 	);
 	Slim::Control::Request::addDispatch([ 'audiocd', $_ ], $cmd{$_}) for keys %cmd;
 
@@ -629,6 +630,15 @@ sub _cli_history {
 	my ($request) = @_;
 	$request->addResult(history => [ map { my $m = $MOVE_STATE{ $_->{id} // '' }; $m ? { %$_, move => { %$m } } : $_ } @{ $RIPPER->history } ]);
 	$request->setStatusDone;
+}
+
+# Brise istoriju ripova (ne albume na disku); unos cije premestanje u biblioteku jos traje ostaje.
+sub _cli_history_clear {
+	my ($request) = @_;
+	my $n = $RIPPER->clear_history(keep => sub { $MOVING{ $_[0]{id} // '' } ? 1 : 0 });
+	my %ids = map { ($_->{id} // '') => 1 } @{ $RIPPER->history };
+	delete $MOVE_STATE{$_} for grep { !$ids{$_} } keys %MOVE_STATE;
+	_done($request, 1, undef, removed => $n);
 }
 
 # Premesti u biblioteku (Library.pm iz Task 13): samo ispod LMS muzickih foldera.

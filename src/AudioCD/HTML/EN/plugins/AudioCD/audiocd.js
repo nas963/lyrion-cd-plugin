@@ -525,6 +525,8 @@
 
   function renderHistory() {
     $('hist-title').textContent = t('UI_HISTORY');
+    $('hist-clear').hidden = !state.hist.length;
+    $('hist-clear').disabled = state.pending;
     if (!changed('history', state.hist)) return;
     var ul = $('history');
     clear(ul);
@@ -661,6 +663,12 @@
     });
   }
 
+  // Brise samo spisak (albumi ostaju na disku); unos koji se upravo premesta u biblioteku ostaje.
+  function clearHistory() {
+    if (!window.confirm(t('UI_HISTORY_CLEAR_CONFIRM'))) return;
+    run(function () { return cmd('history_clear'); }, t('UI_HISTORY_CLEARED'));
+  }
+
   function eject() {
     var s = state.snap || {};
     var jobs = (s.drive_busy && s.drive_busy !== 'none' && s.drive_busy !== 'process') || (s.rip && s.rip.current);
@@ -772,7 +780,7 @@
       'rip-dlg-title': 'UI_RIP_DIALOG_TITLE', 'rip-dir-label': 'UI_RIP_FOLDER', 'rip-profile-label': 'UI_PROFILE',
       'rip-eject-label': 'UI_EJECT_AFTER', 'rip-dlg-cancel': 'UI_CANCEL', 'rip-dlg-go': 'UI_START_RIP',
       'edit-title': 'UI_EDIT_TITLE', 'ed-artist-label': 'UI_ARTIST', 'ed-album-label': 'UI_ALBUM', 'ed-year-label': 'UI_YEAR',
-      'edit-cancel': 'UI_CANCEL', 'edit-save': 'UI_SAVE'
+      'edit-cancel': 'UI_CANCEL', 'edit-save': 'UI_SAVE', 'hist-clear': 'UI_HISTORY_CLEAR'
     };
     Object.keys(map).forEach(function (id) { $(id).textContent = t(map[id]); });
     var opts = $('rip-profile').options;
@@ -814,6 +822,7 @@
     $('btn-rip').addEventListener('click', openRip);
     $('btn-edit').addEventListener('click', openEdit);
     $('btn-eject').addEventListener('click', eject);
+    $('hist-clear').addEventListener('click', clearHistory);
     $('btn-retry').addEventListener('click', function () { run(function () { return cmd('load', 'force:1'); }, t('UI_LOADING')); });
     $('btn-load').addEventListener('click', function () { run(function () { return cmd('load'); }, t('UI_LOADING')); });
     $('rip-cancel').addEventListener('click', function () { run(function () { return cmd('cancel', 'id:' + $('rip-cancel').dataset.id); }); });

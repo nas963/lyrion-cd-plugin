@@ -210,6 +210,18 @@ PLUGIN_AUDIOCD_UI_HISTORY_EMPTY
 	EN	No rips yet.
 	SR	Još nema ripova.
 
+PLUGIN_AUDIOCD_UI_HISTORY_CLEAR
+	EN	Clear history
+	SR	Obriši istoriju
+
+PLUGIN_AUDIOCD_UI_HISTORY_CLEAR_CONFIRM
+	EN	Clear the rip history? Ripped albums stay on disk, but albums not yet moved to the library lose their Move button.
+	SR	Obrisati istoriju ripova? Snimljeni albumi ostaju na disku, ali oni koji još nisu premešteni u biblioteku gube dugme za premeštanje.
+
+PLUGIN_AUDIOCD_UI_HISTORY_CLEARED
+	EN	History cleared.
+	SR	Istorija obrisana.
+
 PLUGIN_AUDIOCD_UI_MOVE
 	EN	Move to library
 	SR	Premesti u biblioteku

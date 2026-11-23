@@ -188,6 +188,8 @@ ul.plain li:first-child { border-top: 0; }
 .hist-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
 .hist-main { flex: 1 1 220px; min-width: 0; }
 .hist-title { font-weight: 600; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.card-head h3 { margin: 0; }
 .err-text { color: var(--err); font-size: 0.9rem; }
 .warn-text { color: var(--warn); font-size: 0.9rem; }
 
