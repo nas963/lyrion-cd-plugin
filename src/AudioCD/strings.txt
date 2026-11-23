@@ -442,6 +442,10 @@ PLUGIN_AUDIOCD_ERR_COPY_FAILED
 	EN	Copying to the library failed; the album stays in the rips folder.
 	SR	Kopiranje u biblioteku nije uspelo; album ostaje u folderu sa ripovima.
 
+PLUGIN_AUDIOCD_ERR_NOT_WRITABLE
+	EN	The selected music folder is read-only (e.g. a network share mounted read-only); the album stays in the rips folder.
+	SR	U izabrani muzički folder ne može da se piše (npr. mrežno deljenje samo za čitanje); album ostaje u folderu sa ripovima.
+
 PLUGIN_AUDIOCD_ERR_VERIFY_FAILED
 	EN	The copy did not match the original; the album stays in the rips folder.
 	SR	Kopija se ne poklapa sa originalom; album ostaje u folderu sa ripovima.

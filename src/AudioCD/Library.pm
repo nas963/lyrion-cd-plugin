@@ -122,6 +122,8 @@ sub plan_move_to {
 	return (undef, 'not_found') unless -d _fs($src);
 	my $d = in_library($dir, $media) or return (undef, 'outside_library');
 	return (undef, 'not_found') unless -d _fs($d);
+	# npr. muzika sa mreznog deljenja (AudioOS ga montira samo za citanje): odmah jasna greska, ne posle kopiranja
+	return (undef, 'not_writable') unless -w _fs($d);
 	(my $base = $src) =~ s{\A.*/}{};
 	my $n = defined $name && $name =~ /\S/ ? Plugins::AudioCD::Naming::sanitize($name) : $base;
 	my $dest = "$d/$n";
@@ -220,7 +222,7 @@ sub _prune_empty {
 # move_async($src, $dest, spawn => sub(\@argv, $on_exit->($status)), on_done => sub($ok, $err, $warn),
 #            rename => sub, rips_root => $dir)
 # Isti FS: rename odmah (jedna operacija nad direktorijumom). Pri EXDEV kopiranje ide u spoljnom
-# procesu (cp -a u skriveni .part), da LMS petlja ne blokira dok se stotine MB pisu na disk koji se
+# procesu (cp -R u skriveni .part), da LMS petlja ne blokira dok se stotine MB pisu na disk koji se
 # budi. Posle cp: provera velicina, ponovna provera odredista (rename bi tiho zamenio prazan folder),
 # rename .part -> $dest, brisanje izvora. Na gresku se brise delimicna kopija, izvor ostaje.
 # Ako izvor posle provere kopije ne moze da se obrise: uspeh sa upozorenjem 'source_not_removed'.
@@ -268,7 +270,10 @@ sub move_async {
 		return $done->(undef, $code);
 	};
 	my $started = eval {
-		$spawn->([ 'cp', '-a', '--', $s, $pb ], sub {
+		# cp -R bez -a/-p: vlasnik i prava se ne prenose. Na exFAT/NTFS (AudioOS muzicki disk, mount sa
+		# uid=/umask=) chown nije dozvoljen, pa je cp -a zavrsavao greskom ("failed to preserve ownership")
+		# iako su fajlovi kopirani -> copy_failed. Kopija dobija prava odredista (umask procesa).
+		$spawn->([ 'cp', '-R', '--', $s, $pb ], sub {
 			my ($status) = @_;
 			return $fail->('copy_failed') if $status;
 			return $fail->('verify_failed') unless eval { _verify_tree($src, $part); 1 };

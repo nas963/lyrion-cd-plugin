@@ -66,6 +66,15 @@ is($err, 'exists', 'postoji: nikad se ne prepisuje');
 is($err, 'outside_library', 'odrediste van biblioteke');
 (undef, $err) = Plugins::AudioCD::Library::plan_move_to("$root/x/y", "$cd/Enigma", undef, $rips, \@media);
 is($err, 'outside_rips', 'izvor van rip foldera');
+# odrediste samo za citanje (npr. mrezno deljenje montirano ro): not_writable pre kopiranja
+$mk->("$cd/RO");
+chmod 0555, "$cd/RO";
+SKIP: {
+	skip 'folder 0555 je i dalje upisiv (root ili FS bez prava)', 1 if -w "$cd/RO";
+	(undef, $err) = Plugins::AudioCD::Library::plan_move_to("$rips/Enigma/The Cross of Changes", "$cd/RO", undef, $rips, \@media);
+	is($err, 'not_writable', 'odrediste samo za citanje: not_writable');
+}
+chmod 0755, "$cd/RO";
 
 # celo premestanje (isti FS)
 my ($ok, $merr) = Plugins::AudioCD::Library::move("$rips/Enigma/The Cross of Changes", "$cd/Enigma/The Cross of Changes", rips_root => $rips);

@@ -667,13 +667,14 @@ sub _cli_move {
 	# CLI odmah odgovara; kraj premestanja azurira istoriju i stanje, pa skenira samo taj folder.
 	$MOVING{$id} = 1;
 	$MOVE_STATE{$id} = { moving => 1 };
-	my ($timed_out, @sync);
+	my ($timed_out, @sync, @cp_out);
 	Plugins::AudioCD::Library::move_async($e->{path}, $dest,
 		rips_root => _rips_dir(),
 		spawn     => sub {
 			my ($argv, $on_exit) = @_;
 			my $job = Plugins::AudioCD::Jobs->spawn(
 				argv    => [ Plugins::AudioCD::Jobs::low_prio(@$argv) ],
+				on_line => sub { push @cp_out, $_[0]; shift @cp_out if @cp_out > 5 },    # poruke cp-a za log
 				on_exit => sub { delete $MOVING_JOB{$id}; $on_exit->(@_) },
 			);
 			$MOVING_JOB{$id} = $job;
@@ -686,7 +687,7 @@ sub _cli_move {
 			unless ($ok) {
 				$merr = 'timeout' if $timed_out;
 				$MOVE_STATE{$id} = { last_error => $merr || 'move_failed' };
-				$log->error("premestanje u biblioteku: " . ($merr || 'move_failed'));
+				$log->error("premestanje u biblioteku: " . ($merr || 'move_failed') . (@cp_out ? ' | ' . join(' | ', @cp_out) : ''));
 				$STATE->on_rip_change if $STATE;
 				return;
 			}
