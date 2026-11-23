@@ -142,6 +142,35 @@ sub mk {
     is($r->status->{current}, undef, 'nema tekuceg');
 }
 
+# ---- disk sa 10+ pesama: cyanrip dopunjuje {track} nulama (01.flac .. 12.flac) ----
+{
+    my $rips = fresh_rips();
+    @SPAWNS = ();
+    $AUTO = sub {
+        my ($sp) = @_;
+        my $d = $sp->{dir};
+        for my $t (1 .. 12) {
+            open my $fh, '>', sprintf('%s/%02d.flac', $d, $t) or die; print {$fh} "flac$t"; close $fh;
+        }
+        open my $c, '>:utf8', "$d/Albumˑ.cue" or die;
+        print {$c} join '', map { sprintf qq{FILE "%02d.flac" WAVE\n  TRACK %02d AUDIO\n}, $_, $_ } 1 .. 12;
+        close $c;
+        $sp->{on_exit}->(0);
+    };
+    my $disc = mkdisc(album => 'Dvanaest');
+    $disc->{tracks} = [ map { { n => $_, title => "Naslov $_" } } 1 .. 12 ];
+    my $r = mk();
+    $r->enqueue(disc => $disc, toc => $toc, rips_dir => $rips);
+    my $h = $r->history->[0];
+    is($h->{result}, 'ok', '12 pesama (01.flac): rip uspeo') or diag $h->{message};
+    my $dir = "$rips/Izvođač/Dvanaest";
+    ok(-f "$dir/01 - Naslov 1.flac" && -f "$dir/12 - Naslov 12.flac", '12 pesama: fajlovi preimenovani');
+    is(slurp("$dir/09 - Naslov 9.flac"), 'flac9', '12 pesama: 09.flac je pesma 9');
+    my $cue = slurp("$dir/Dvanaest.cue");
+    like($cue, qr/FILE "01 - Naslov 1\.flac" WAVE/, '12 pesama: cue FILE 01 prepravljen');
+    unlike($cue, qr/FILE "\d+\.flac"/, '12 pesama: nema starih imena u cue');
+}
+
 # ---- postojeci Album -> Album (2); vise diskova ----
 {
     my $rips = fresh_rips();

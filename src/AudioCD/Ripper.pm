@@ -514,8 +514,19 @@ sub _remove_tmp {
     return;
 }
 
+# Fajl pesme $n koji je cyanrip napravio (-F '{track}') ili undef. cyanrip dopunjuje {track} nulama
+# prema broju pesama na disku (get_dir_tag_val, 0.9.0 i 0.9.3.1): do 9 pesama "1.flac", 10-99 "01.flac",
+# 100+ "001.flac". Ranije se trazio samo "1.flac", pa je rip diska sa 10+ pesama pucao na kraju.
+sub _track_src {
+    my ($dir, $n) = @_;
+    for my $name ($n . '.flac', sprintf('%02d.flac', $n), sprintf('%03d.flac', $n)) {
+        return "$dir/$name" if -f "$dir/$name";
+    }
+    return undef;
+}
+
 # Fajlovi u folderu sa datom ekstenzijom (bajt imena), sortirano; $ext undef = svi fajlovi.
-# cyanrip: <N>.flac (N bez nula) + jedan .log i .cue sa unicode znakovima u imenu.
+# cyanrip: <N>.flac (N dopunjen nulama na diskovima sa 10+ pesama) + jedan .log i .cue sa unicode znakovima u imenu.
 sub _glob_files {
     my ($dir, $ext) = @_;
     opendir(my $dh, $dir) or return ();
@@ -549,8 +560,9 @@ sub _collect {
     my $tmp  = _fs($rec->{tmp});
     my @tracks = @{ $disc->{tracks} };
 
+    my %src;
     for my $t (@tracks) {
-        die "nedostaje $t->{n}.flac\n" unless -f "$tmp/$t->{n}.flac";
+        $src{ $t->{n} } = _track_src($tmp, $t->{n}) // die "nedostaje $t->{n}.flac\n";
     }
 
     my $stage = "$tmp/stage";
@@ -561,7 +573,7 @@ sub _collect {
     for my $t (@tracks) {
         my $name = Plugins::AudioCD::Naming::track_file($disc, $t);
         $newname{ $t->{n} } = $name;
-        $self->_move("$tmp/$t->{n}.flac", "$stage/" . _fs($name));
+        $self->_move($src{ $t->{n} }, "$stage/" . _fs($name));
     }
     $self->_move("$tmp/cover.jpg", "$stage/cover.jpg") if -f "$tmp/cover.jpg";
 
