@@ -378,6 +378,24 @@ sub loaded {
 	ok(!$ok, 'rip dok se kesira odbijen');
 	is($err->{error}, 'drive_busy', 'rip dok se kesira: drive_busy');
 	is(scalar @{ $w->{ripper}{enq} }, 0, 'rip nije dodat u red');
+	is($err->{busy}, 'cache', 'rip dok se kesira: busy cache');
+	is($w->{cache}{stops}, 0, 'rip bez stop_cache ne dira kes');
+
+	# stop_cache sa neispravnim zahtevom: kes se ne prekida
+	($ok, $err) = $st->request_rip(profile => 'ultra', stop_cache => 1);
+	is($err->{error}, 'bad_args', 'stop_cache + los profil: bad_args');
+	is($w->{cache}{stops}, 0, 'stop_cache + los zahtev: kes ostaje');
+
+	# stop_cache dok cd-paranoia jos umire: kes prekinut, rip ceka (drive_busy process)
+	$w->{procs} = 1;
+	($ok, $err) = $st->request_rip(profile => 'fast', stop_cache => 1);
+	ok(!$ok, 'stop_cache: proces jos umire -> odbijeno');
+	is($err->{error}, 'drive_busy', 'stop_cache: drive_busy');
+	is($err->{busy}, 'process', 'stop_cache: busy process');
+	is($w->{cache}{stops}, 1, 'stop_cache: izvlacenje prekinuto');
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'stop_cache: rip jos nije u redu');
+	$w->{procs} = 0;
+	$w->{cache}{busy} = 1;    # Play opet pokrenuo izvlacenje
 
 	# kes kompletan -> rip moze
 	$w->{cache}->complete_all(9);
@@ -393,6 +411,26 @@ sub loaded {
 	# nepostojeca pesma
 	($ok, $err) = $st->request_play('aa:bb', 42);
 	is($err->{error}, 'bad_track', 'nepostojeca pesma');
+}
+
+# Rip sa stop_cache dok se kesira za slusanje: izvlacenje prekinuto, rip u redu
+{
+	my $w = loaded();
+	my $st = $w->{state};
+	my ($ok, $err) = $st->request_play('aa:bb', 2);
+	ok($ok, 'Play pre ripa');
+	is($st->drive_busy, 'cache', 'kesira se');
+	($ok, $err) = $st->request_rip(profile => 'fast', stop_cache => 1);
+	ok($ok, 'rip sa stop_cache') or diag explain $err;
+	is($w->{cache}{stops}, 1, 'rip sa stop_cache: izvlacenje prekinuto');
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'rip sa stop_cache: u redu');
+	is($st->drive_busy, 'rip', 'rip sa stop_cache: drajv ripuje');
+
+	# stop_cache kad se ne kesira: nista se ne prekida
+	$w = loaded();
+	($ok, $err) = $w->{state}->request_rip(profile => 'fast', stop_cache => 1);
+	ok($ok, 'stop_cache bez kesa: rip');
+	is($w->{cache}{stops}, 0, 'stop_cache bez kesa: Cache::stop nije pozvan');
 }
 
 # Play tokom ripa bez kesa -> drive_busy

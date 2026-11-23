@@ -584,6 +584,7 @@ sub _cli_rip {
 		profile => _param($request, 'profile'),
 		dir     => _param($request, 'dir'),
 		eject   => _param($request, 'eject'),
+		stop_cache => _param($request, 'stop_cache') ? 1 : 0,    # prvo prekini izvlacenje za slusanje
 	);
 	_done($request, $id, $err, id => $id);
 }

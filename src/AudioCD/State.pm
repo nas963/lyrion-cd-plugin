@@ -659,11 +659,16 @@ sub request_cache {
 	return ($ok, $err);
 }
 
-# request_rip(profile, dir, eject) -> ($job_id, undef) | (undef, $err). FLAC nivo se ne prosledjuje (Ruling 15).
+# request_rip(profile, dir, eject[, stop_cache => 1]) -> ($job_id, undef) | (undef, $err). FLAC nivo se ne prosledjuje (Ruling 15).
+# Drajv izvlaci pesme za slusanje (kes nije ceo): bez stop_cache -> drive_busy (busy => 'cache').
+# Sa stop_cache (stranica: "prvo zaustavi slusanje CD-a") izvlacenje se prekida tek posle svih ostalih
+# provera (gotove pesme ostaju), a dok prekinuti cd-paranoia jos umire -> drive_busy (busy => 'process');
+# stranica tada ponavlja zahtev za trenutak.
 sub request_rip {
 	my ($self, %a) = @_;
 	return _err('no_disc') unless $self->_ready;
-	return _err('drive_busy') if $self->drive_busy eq 'cache' && !$self->_cache_complete;
+	my $caching = $self->drive_busy eq 'cache' && !$self->_cache_complete;
+	return _err('drive_busy', busy => 'cache') if $caching && !$a{stop_cache};
 	return $self->_lookup_busy_err if $self->{d}{lookup_busy}->();
 	my @miss = $self->_missing('cyanrip');
 	return _err('missing_tools', tools => \@miss) if @miss;
@@ -684,6 +689,12 @@ sub request_rip {
 	my $eject = defined $a{eject} && length $a{eject} ? ($a{eject} ? 1 : 0) : ($self->_pref('ejectAfterRip') ? 1 : 0);
 	my $offset = $self->_pref('driveOffset');
 	$offset = undef unless defined $offset && length $offset;
+
+	if ($caching) {    # stop_cache: tek sada, kad je zahtev inace ispravan
+		eval { $self->{d}{cache}->stop; 1 } or $self->_log(warn => "kes: $@");
+		$self->_changed;
+	}
+	return _err('drive_busy', busy => 'process') if $a{stop_cache} && $self->drive_busy eq 'process';
 
 	my ($id, $err) = $self->{d}{ripper}->enqueue(
 		disc        => $self->{disc},

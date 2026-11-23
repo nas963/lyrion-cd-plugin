@@ -34,6 +34,26 @@ PLUGIN_AUDIOCD_UI_PLAY_TRACK
 	EN	Play from this track
 	SR	Slušaj od ove pesme
 
+PLUGIN_AUDIOCD_UI_PAUSE
+	EN	Pause
+	SR	Pauza
+
+PLUGIN_AUDIOCD_UI_RESUME
+	EN	Resume
+	SR	Nastavi
+
+PLUGIN_AUDIOCD_UI_STOP
+	EN	Stop
+	SR	Stop
+
+PLUGIN_AUDIOCD_UI_NOW_PLAYING
+	EN	Playing: {0}
+	SR	Svira: {0}
+
+PLUGIN_AUDIOCD_UI_NOW_PAUSED
+	EN	Paused: {0}
+	SR	Pauzirano: {0}
+
 PLUGIN_AUDIOCD_UI_RIP
 	EN	Rip
 	SR	Ripuj
@@ -289,6 +309,10 @@ PLUGIN_AUDIOCD_UI_PROFILE_SECURE
 PLUGIN_AUDIOCD_UI_EJECT_AFTER
 	EN	Eject the disc when done
 	SR	Izbaci disk posle ripa
+
+PLUGIN_AUDIOCD_UI_RIP_STOP_PLAYBACK
+	EN	Stop CD playback first (and reading the disc for playback)
+	SR	Prvo zaustavi slušanje CD-a (i čitanje diska za slušanje)
 
 PLUGIN_AUDIOCD_UI_START_RIP
 	EN	Start ripping

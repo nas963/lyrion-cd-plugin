@@ -107,6 +107,8 @@ p { margin: 4px 0; }
 .field label { display: block; font-size: 0.9rem; color: var(--muted); margin-bottom: 3px; }
 .field.check { display: flex; align-items: center; gap: 8px; }
 .field.check label { margin: 0; color: var(--text); font-size: 1rem; }
+.field[hidden] { display: none; }
+.now-playing { margin: 6px 0 0; font-weight: 600; }
 
 select, input[type="text"] {
   width: 100%;
@@ -163,6 +165,7 @@ ul.plain li:first-child { border-top: 0; }
   border-top: 1px solid var(--line);
 }
 .tracks li:first-child { border-top: 0; }
+.tracks li.now .title { font-weight: 700; }
 .tracks .n { color: var(--muted); text-align: right; }
 .tracks .len { color: var(--muted); font-variant-numeric: tabular-nums; }
 .tracks .sub { display: block; color: var(--muted); font-size: 0.88rem; }

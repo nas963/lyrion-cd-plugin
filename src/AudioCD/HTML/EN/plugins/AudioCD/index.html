@@ -27,6 +27,7 @@
         <p id="disc-artist" class="artist"></p>
         <p id="disc-meta" class="muted"></p>
         <p id="disc-state" class="muted"></p>
+        <p id="now-playing" class="now-playing" hidden></p>
         <p id="fuzzy-hint" class="hint" hidden></p>
         <div id="release-box" class="field" hidden>
           <label for="release" id="release-label"></label>
@@ -42,6 +43,8 @@
       </div>
       <div class="buttons">
         <button type="button" id="btn-play" class="primary"></button>
+        <button type="button" id="btn-pause" hidden></button>
+        <button type="button" id="btn-stop" hidden></button>
         <button type="button" id="btn-rip"></button>
         <button type="button" id="btn-edit"></button>
         <button type="button" id="btn-eject"></button>
@@ -101,6 +104,10 @@
     <div class="field check">
       <input type="checkbox" id="rip-eject">
       <label for="rip-eject" id="rip-eject-label"></label>
+    </div>
+    <div id="rip-stop-box" class="field check" hidden>
+      <input type="checkbox" id="rip-stop">
+      <label for="rip-stop" id="rip-stop-label"></label>
     </div>
     <div class="dlg-buttons">
       <button type="button" id="rip-dlg-cancel"></button>
