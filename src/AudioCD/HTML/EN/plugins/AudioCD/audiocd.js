@@ -250,7 +250,8 @@
     var cur = ((r.playlist_loop || [])[0]) || {};
     var m = /^audiocd:\/\/([^\/?#]+)\/(\d+)$/.exec(String(cur.url || ''));
     return m ? { pid: pid, mode: mode, discid: m[1], n: Number(m[2]),
-      idx: Number(r.playlist_cur_index) || 0, count: Number(r.playlist_tracks) || 0 } : null;
+      idx: Number(r.playlist_cur_index) || 0, count: Number(r.playlist_tracks) || 0,
+      time: Number(r.time) || 0, duration: Number(r.duration) || 0, waiting: !!Number(r.waitingToPlay), at: Date.now() } : null;
   }
 
   // Stanje izabranog plejera; greska ili bez plejera -> nema kontrola (stranica radi i bez toga).
@@ -435,6 +436,79 @@
     for (var i = 0; i < plays.length; i++) plays[i].disabled = busy || !ready || !$('player').value;
   }
 
+  // ---------- displej ----------
+
+  // Segmenti cifre: gore, desno gore, desno dole, dole, levo dole, levo gore, sredina.
+  var SEGS = { '0': '1111110', '1': '0110000', '2': '1101101', '3': '1111001', '4': '0110011', '5': '1011011',
+    '6': '1011111', '7': '1110000', '8': '1111111', '9': '1111011', '-': '0000001', ' ': '0000000' };
+
+  function setDigits(id, text) {
+    if (!changed('lcd:' + id, text)) return;
+    var box = $(id);
+    clear(box);
+    text.split('').forEach(function (c) {
+      var on = SEGS[c];
+      var d = el('span', on ? 'digit' : 'colon');
+      for (var i = 0; i < (on ? 7 : 2); i++) d.appendChild(el('i', on && on.charAt(i) === '1' ? 'on' : null));
+      box.appendChild(d);
+    });
+  }
+
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  function clock(sec) { sec = Math.max(0, Math.floor(sec)); return two(Math.floor(sec / 60)) + ':' + two(sec % 60); }
+
+  var DISP_KEY = 'audiocd.display';
+  var dispMode = Number(store(DISP_KEY)) || 0;    // 0 proteklo, 1 preostalo pesme, 2 preostalo diska
+  var endPoll = 0;
+
+  // Polozaj u pesmi: poslednji status plejera + proteklo vreme (izmedju dva upita tece lokalno).
+  function position(pb) {
+    var sec = pb.time + (pb.mode === 'play' && !pb.waiting ? (Date.now() - pb.at) / 1000 : 0);
+    return pb.duration ? Math.min(sec, pb.duration) : sec;
+  }
+
+  function renderDisplay() {
+    var snap = state.snap;
+    if (!snap) return;
+    var ready = snap.status === 'ready' && snap.metadata;
+    var pb = playingTrack() ? state.playback : null;
+    var tracks = ready ? discTracks(snap) : [];
+    var sum = function (from) { return tracks.reduce(function (a, tr) { return a + (Number(tr.n) > from ? Number(tr.length) || 0 : 0); }, 0); };
+    var track = '--', time = '--:--', label = '', text = '';
+    if (pb) {
+      var pos = position(pb);
+      var left = Math.max(0, (pb.duration || 0) - Math.floor(pos));
+      track = two(pb.n);
+      time = dispMode === 0 ? clock(pos) : '-' + clock(dispMode === 1 ? left : left + sum(pb.n));
+      label = t(['UI_DISP_ELAPSED', 'UI_DISP_REMAIN', 'UI_DISP_TOTAL_REMAIN'][dispMode]);
+      // kraj pesme: odmah pitaj plejer sta svira, ne cekaj redovan upit
+      if (pb.mode === 'play' && pb.duration && pos >= pb.duration && Date.now() - endPoll > 1500) {
+        endPoll = Date.now();
+        loadPlayback().then(render);
+      }
+    } else if (ready) {
+      track = two(tracks.length);
+      time = clock(sum(0));
+      label = t('UI_DISP_TOTAL');
+    } else {
+      text = snap.status === 'reading' ? t('UI_READING') : snap.status === 'empty' ? t('UI_NO_DISC') : '';
+    }
+    setDigits('lcd-track', track);
+    setDigits('lcd-time', time);
+    var view = { m: pb ? pb.mode : '', w: !!(pb && pb.waiting), l: label, x: text, n: pb ? pb.n : 0, c: tracks.map(function (tr) { return Number(tr.n); }), r: !!pb || !!ready };
+    if (!changed('display', view)) return;
+    $('lcd-track-label').textContent = t(pb ? 'UI_DISP_TRACK' : 'UI_TRACKS');
+    $('lcd-time-label').textContent = label;
+    $('lcd-mode').setAttribute('data-mode', view.m);
+    $('lcd-text').textContent = text;
+    $('display').classList.toggle('paused', view.m === 'pause');
+    $('display').classList.toggle('waiting', view.w);
+    $('display').disabled = !pb;
+    var cal = $('lcd-cal');
+    clear(cal);
+    view.c.forEach(function (n) { cal.appendChild(el('span', n === view.n ? 'now' : n < view.n ? 'past' : null, String(n))); });
+  }
+
   function renderTracks() {
     var snap = state.snap;
     if (!snap) return;
@@ -602,6 +676,7 @@
     renderBanners();
     renderDisc();
     renderPlayback();
+    renderDisplay();
     renderTracks();
     renderProgress();
     renderHistory();
@@ -841,6 +916,14 @@
     $('release').addEventListener('change', function () {
       run(function () { return cmd('select_release', 'index:' + $('release').value); });
     });
+    $('display').title = t('UI_DISP_TOGGLE');
+    $('display').setAttribute('aria-label', t('UI_DISP_TOGGLE'));
+    $('display').addEventListener('click', function () {
+      dispMode = (dispMode + 1) % 3;
+      store(DISP_KEY, String(dispMode));
+      renderDisplay();
+    });
+    setInterval(function () { if (!document.hidden) renderDisplay(); }, 250);
     $('btn-play').addEventListener('click', playPause);
     $('btn-prev').addEventListener('click', function () { transport(['playlist', 'index', '-1']); });
     $('btn-next').addEventListener('click', function () { transport(['playlist', 'index', '+1']); });

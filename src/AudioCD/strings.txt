@@ -42,6 +42,30 @@ PLUGIN_AUDIOCD_UI_RESUME
 	EN	Resume
 	SR	Nastavi
 
+PLUGIN_AUDIOCD_UI_DISP_TRACK
+	EN	Track
+	SR	Pesma
+
+PLUGIN_AUDIOCD_UI_DISP_ELAPSED
+	EN	Elapsed
+	SR	Proteklo
+
+PLUGIN_AUDIOCD_UI_DISP_REMAIN
+	EN	Remaining
+	SR	Preostalo
+
+PLUGIN_AUDIOCD_UI_DISP_TOTAL_REMAIN
+	EN	Disc remaining
+	SR	Preostalo na disku
+
+PLUGIN_AUDIOCD_UI_DISP_TOTAL
+	EN	Total time
+	SR	Ukupno
+
+PLUGIN_AUDIOCD_UI_DISP_TOGGLE
+	EN	Time display: elapsed, remaining, disc remaining
+	SR	Prikaz vremena: proteklo, preostalo, preostalo na disku
+
 PLUGIN_AUDIOCD_UI_PREV
 	EN	Previous track
 	SR	Prethodna pesma

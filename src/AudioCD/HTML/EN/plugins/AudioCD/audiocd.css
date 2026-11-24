@@ -138,6 +138,50 @@ button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(
 button.small { min-height: 32px; padding: 2px 10px; font-size: 0.9rem; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* displej kao na CD plejeru: namerno taman u obe teme */
+button.lcd, button.lcd:hover:not(:disabled) {
+  display: block; width: 100%; margin-top: 14px; padding: 12px 16px; text-align: left;
+  background: #0a1114; color: #62e6f5; border: 1px solid #26343a; border-radius: 10px;
+}
+button.lcd:disabled { opacity: 1; cursor: default; }
+.lcd-row { display: flex; align-items: flex-end; gap: 16px; min-height: 66px; }
+.lcd-cell { display: flex; flex-direction: column; gap: 6px; }
+.lcd-time { margin-left: auto; align-items: flex-end; }
+.lcd-label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; min-height: 1.2em; }
+.lcd-mode { align-self: center; width: 26px; height: 26px; }
+.lcd-mode svg { display: none; width: 26px; height: 26px; fill: currentColor; }
+.lcd-mode[data-mode="play"] .i-play, .lcd-mode[data-mode="pause"] .i-pause { display: block; }
+.lcd.paused .lcd-time .digits, .lcd.waiting .lcd-time .digits { animation: lcd-blink 1.2s steps(2, jump-none) infinite; }
+@keyframes lcd-blink { from { opacity: 1; } to { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .lcd .digits { animation: none !important; } }
+.digits { display: inline-flex; gap: 6px; height: 46px; transform: skewX(-5deg); }
+.digit { position: relative; width: 26px; height: 46px; }
+.digit i { position: absolute; background: currentColor; opacity: 0.07; border-radius: 2px; }
+.digit i.on { opacity: 1; }
+.digit i:nth-child(1) { left: 4px; right: 4px; top: 0; height: 5px; }
+.digit i:nth-child(2) { right: 0; top: 3px; width: 5px; height: 18px; }
+.digit i:nth-child(3) { right: 0; bottom: 3px; width: 5px; height: 18px; }
+.digit i:nth-child(4) { left: 4px; right: 4px; bottom: 0; height: 5px; }
+.digit i:nth-child(5) { left: 0; bottom: 3px; width: 5px; height: 18px; }
+.digit i:nth-child(6) { left: 0; top: 3px; width: 5px; height: 18px; }
+.digit i:nth-child(7) { left: 4px; right: 4px; top: 20.5px; height: 5px; }
+.colon { display: flex; flex-direction: column; justify-content: space-evenly; width: 6px; height: 46px; }
+.colon i { width: 6px; height: 6px; border-radius: 1px; background: currentColor; }
+.lcd-text { display: block; font-size: 1.1rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.lcd-text:empty, .lcd-cal:empty { display: none; }
+.lcd-cal { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.lcd-cal span { min-width: 1.6em; padding: 0 3px; text-align: center; border: 1px solid transparent; border-radius: 4px; }
+.lcd-cal .past { opacity: 0.25; }
+.lcd-cal .now { border-color: currentColor; font-weight: 700; }
+@media (max-width: 480px) {
+  .lcd-row { gap: 8px; }
+  .digits { gap: 4px; height: 38px; }
+  .digit { width: 20px; height: 38px; }
+  .digit i:nth-child(2), .digit i:nth-child(3), .digit i:nth-child(5), .digit i:nth-child(6) { height: 14px; }
+  .digit i:nth-child(7) { top: 16.5px; }
+  .colon { height: 38px; }
+}
+
 .actions { margin-top: 14px; display: grid; gap: 12px; }
 .transport { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
 button.icon { width: 48px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }

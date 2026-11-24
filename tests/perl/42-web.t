@@ -188,6 +188,7 @@ like($js, qr/audiocd:\\\/\\\//, 'CD se prepoznaje po audiocd:// URL-u');
 like($js, qr/transport\(\['stop'\]\)/, 'Stop salje ["stop"]');
 like($js, qr/\['pause', $_\]/, "Play\/Pauza salje [pause, $_]") for 0, 1;
 like($page, qr/id="$_" class="icon[^"]*" disabled><svg/, "$_: ikona, iskljuceno dok CD ne svira") for qw(btn-prev btn-play btn-next btn-stop);
+like($page, qr/id="$_"/, "displej: $_") for qw(display lcd-track lcd-time lcd-mode lcd-text lcd-cal);
 like($js, qr/iconText\('$_'/, "$_: naziv za citace ekrana") for qw(btn-prev btn-play btn-next btn-stop);
 like($js, qr/\['playlist', 'index', '\Q$_\E1'\]/, "prethodna/sledeca: $_") for '-', '+';
 like($js, qr/'stop_cache:1'/, 'rip sa zaustavljanjem salje stop_cache:1');

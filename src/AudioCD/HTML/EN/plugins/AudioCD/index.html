@@ -36,6 +36,16 @@
       </div>
     </div>
 
+    <button type="button" id="display" class="lcd">
+      <span class="lcd-row" aria-hidden="true">
+        <span class="lcd-cell"><span class="lcd-label" id="lcd-track-label"></span><span class="digits" id="lcd-track"></span></span>
+        <span class="lcd-mode" id="lcd-mode"><svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></span>
+        <span class="lcd-cell lcd-time"><span class="lcd-label" id="lcd-time-label"></span><span class="digits" id="lcd-time"></span></span>
+      </span>
+      <span class="lcd-text" id="lcd-text"></span>
+      <span class="lcd-cal" id="lcd-cal" aria-hidden="true"></span>
+    </button>
+
     <div class="actions">
       <div class="transport">
         <div class="player-pick">
