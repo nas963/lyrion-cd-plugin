@@ -36,8 +36,20 @@
 		<input type="checkbox" name="pref_autoLoad" value="1" [% IF audiocd.autoLoad %]checked[% END %]>
 	[% END %]
 
-	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_RIP" desc="PLUGIN_AUDIOCD_SET_AUTO_RIP_DESC" %]
-		<input type="checkbox" name="pref_autoRip" value="1" [% IF audiocd.autoRip %]checked[% END %]>
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_ON_INSERT" desc="PLUGIN_AUDIOCD_SET_ON_INSERT_DESC" %]
+		<select class="stdedit" name="pref_onInsert">
+			[% FOREACH p IN audiocdOnInsert %]
+			<option value="[% p.value | html %]" [% IF audiocd.onInsert == p.value %]selected[% END %]>[% p.label | html %]</option>
+			[% END %]
+		</select>
+	[% END %]
+
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_PLAY_PLAYER" desc="PLUGIN_AUDIOCD_SET_AUTO_PLAY_PLAYER_DESC" %]
+		<select class="stdedit" name="pref_autoPlayPlayer">
+			[% FOREACH p IN audiocdPlayers %]
+			<option value="[% p.value | html %]" [% IF audiocd.autoPlayPlayer == p.value %]selected[% END %]>[% p.label | html %]</option>
+			[% END %]
+		</select>
 	[% END %]
 
 	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_AUTO_RIP_PROFILE" desc="" %]

@@ -14,6 +14,7 @@ package Plugins::AudioCD::State;
 #   media_dirs  => sub -> [LMS muzicki folderi] (karakteri); rip dir iz zahteva samo ispod njih ili rips_dir
 #   fetch_cover => sub(\@urls, $dest_path, $cb->($ok))
 #   play        => sub($client_id, \@urls, $start_index) -> ($ok, $err)
+#   auto_player => sub -> ($client_id, undef) | (undef, $razlog)   plejer za onInsert = play (slobodan)
 #   eject       => sub($was_busy, $done)    $done->() kad CDROMEJECT zavrsi ili odustane
 #   missing_tools => sub -> imena alata koji nedostaju
 #   notify      => sub($history_entry)       kraj ripa (kad je pref notify)
@@ -49,6 +50,8 @@ use Plugins::AudioCD::Tools;
 use Plugins::AudioCD::Url;
 
 use constant CDS_DISC_OK => 4;
+use constant CDS_NO_DISC => 1;
+use constant CDS_TRAY_OPEN => 2;
 
 my @REQUIRED = qw(pref request_toc lookup metacache cache ripper);
 my %NOOP = (
@@ -56,6 +59,7 @@ my %NOOP = (
 	media_dirs    => sub { [] },
 	fetch_cover   => sub { },
 	play          => sub { (undef, { error => 'no_player' }) },
+	auto_player   => sub { (undef, 'plejer nije izabran') },
 	eject         => sub { },
 	missing_tools => sub { () },
 	notify        => sub { },
@@ -157,7 +161,7 @@ sub _kill_lookup {
 sub _drop_disc {
 	my ($self, %o) = @_;
 	$self->_kill_lookup;
-	delete $self->{pending_autorip};
+	delete @$self{qw(pending_autorip pending_autoplay)};
 	my $c = $self->{d}{cache};
 	# pesme koje su pukle jer je disk izvadjen nisu "neuspele": nastavak ih izvlaci kad se disk vrati
 	eval { $c->stop; $c->forget_failed if $c->can('forget_failed'); $c->clear if $o{clear_cache}; 1 } or $self->_log(warn => "kes: $@");
@@ -248,7 +252,11 @@ sub _on_toc {
 	my $same = defined $self->{discid} && $self->{discid} eq $id;
 	return if $same && !$o{force} && !$o{offline} && $self->{status} =~ /^(?:reading|ready)\z/;
 
+	# stvarno ubacen disk (drajv je bio prazan / fioka otvorena, ili je disk zamenjen): onInsert = play.
+	# Prvo citanje posle starta LMS-a i ponovno citanje istog diska se ne racunaju.
+	my $inserted = delete $self->{seen_empty} || (defined $self->{discid} && !$same) ? 1 : 0;
 	$self->_drop_disc(clear_cache => 1) if defined $self->{discid} && !$same;    # zamenjen disk
+	$self->{pending_autoplay} = $id if $inserted;
 	# kes izbacenog diska (State je prazan) se brise tek kad je u drajvu drugi disk
 	my $cid = $self->{d}{cache}->discid;
 	if (defined $cid && $cid ne $id) {
@@ -323,6 +331,7 @@ sub _apply {
 	$self->_fetch_cover;
 	$self->_changed;
 	$self->_auto_rip;
+	$self->_auto_play;
 	$self->_resume_cache;
 	return;
 }
@@ -362,7 +371,7 @@ sub _fetch_cover {
 sub _auto_rip {
 	my ($self) = @_;
 	return if $self->{eject_pending};
-	return unless $self->_pref('autoRip');
+	return unless ($self->_pref('onInsert') // '') eq 'rip';
 	my $id = $self->{discid};
 	# Isti disk posle restarta ili ponovnog ubacivanja se ne ripuje ponovo.
 	return if grep { defined $_->{discid} && $_->{discid} eq $id && ($_->{result} // '') =~ /^(?:ok|accurip_mismatch)\z/ }
@@ -377,9 +386,34 @@ sub _auto_rip {
 	return;
 }
 
-# Plugin javlja da je cd-info zavrsio: odlozeni automatski rip.
+# Disk upravo ubacen (pending_autoplay): pusta ga na izabranom plejeru, ako plejer ne svira.
+# Dok cd-info ili proces koji umire drze drajv ostaje odlozeno (on_lookup_idle, on_jobs_changed).
+sub _auto_play {
+	my ($self) = @_;
+	return if $self->{stopped} || $self->{eject_pending} || !$self->_ready;
+	my $id = $self->{pending_autoplay};
+	return unless defined $id;
+	if ($id ne $self->{discid} || ($self->_pref('onInsert') // '') ne 'play') {
+		delete $self->{pending_autoplay};
+		return;
+	}
+	return if $self->drive_busy =~ /^(?:lookup|process)\z/;
+	delete $self->{pending_autoplay};
+	my ($client, $why) = $self->{d}{auto_player}->();
+	unless (defined $client) {
+		$self->_log(warn => "automatsko pustanje preskoceno: $why");
+		return;
+	}
+	my ($first) = $self->_audio;
+	my ($ok, $err) = $self->request_play($client, $first);
+	$self->_log(warn => "automatsko pustanje nije pokrenuto: $err->{error}") unless $ok;
+	return;
+}
+
+# Plugin javlja da je cd-info zavrsio: odlozeni automatski rip ili pustanje.
 sub on_lookup_idle {
 	my ($self) = @_;
+	$self->_auto_play;
 	my $id = delete $self->{pending_autorip};
 	return if $self->{stopped} || !defined $id || !defined $self->{discid} || $id ne $self->{discid} || !$self->_ready;
 	$self->_auto_rip;
@@ -444,6 +478,7 @@ sub _request_status {
 # Najvise jedna provera u letu; odgovor ide kroz on_drive_status (koji ponovo proverava zauzet drajv).
 sub on_jobs_changed {
 	my ($self) = @_;
+	$self->_auto_play;
 	return unless $self->{recheck};
 	return if $self->{stopped} || $self->{eject_pending} || $self->{recheck_inflight} || $self->drive_busy ne 'none';
 	$self->{recheck_inflight} = 1;
@@ -457,6 +492,13 @@ sub on_jobs_changed {
 # Status bez informacije o disku: pomocnik ne radi ili nije odgovorio na vreme.
 sub _no_info { my ($code, $err) = @_; return !defined $code && defined $err && $err =~ /^(?:helper|drive_timeout)\z/ ? 1 : 0 }
 
+# Drajv je pouzdano bez diska: sledeci procitan disk je stvarno ubacen. "Not ready" (zavrtanje) se ne racuna.
+sub _note_empty {
+	my ($self, $code) = @_;
+	$self->{seen_empty} = 1 if defined $code && ($code == CDS_NO_DISC || $code == CDS_TRAY_OPEN);
+	return;
+}
+
 # Ima li sta da se izbaci: ucitan disk ili TOC koji se jos cita.
 sub _has_disc { my ($self) = @_; return defined $self->{discid} || defined $self->{toc_pending} }
 
@@ -465,6 +507,7 @@ sub _has_disc { my ($self) = @_; return defined $self->{discid} || defined $self
 sub on_drive_status {
 	my ($self, $code, $err) = @_;
 	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
+	$self->_note_empty($code);
 	return if _no_info($code, $err);    # recheck ostaje: proverava se ponovo kad pomocnik proradi
 	my $ok   = defined $code && $code == CDS_DISC_OK ? 1 : 0;
 	my $prev = $self->{last_drive};
@@ -520,6 +563,7 @@ sub on_eject_event {
 			$what = 'ignored';
 			return;
 		}
+		$self->_note_empty($code);
 		$self->on_eject;
 		$what = 'ejected';
 	});

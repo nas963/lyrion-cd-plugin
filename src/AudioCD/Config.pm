@@ -20,7 +20,8 @@ our %DEFAULTS = (
 	quietSpeed           => 8,
 	driveOffset          => '',
 	autoLoad             => 1,
-	autoRip              => 0,
+	onInsert             => 'none',    # none | play | rip (zamenjuje stari autoRip)
+	autoPlayPlayer       => '',        # ID plejera za onInsert = play
 	autoRipProfile       => 'balanced',
 	ejectAfterRip        => 0,
 	notify               => 1,
@@ -30,6 +31,15 @@ our %DEFAULTS = (
 	ripsDir              => '',
 	noRipWhileLocalPlays => 0,
 );
+
+our @ON_INSERT = qw(none play rip);
+
+# Staro podesavanje autoRip (do 1.4.0) -> onInsert; poziva se pre prefs->init.
+# migrate_on_insert($onInsert, $autoRip) -> vrednost za upis ili undef (nema sta da se prenese)
+sub migrate_on_insert {
+	my ($on, $rip) = @_;
+	return !defined $on && $rip ? 'rip' : undef;
+}
 
 # Cita KEY=value fajl (shell stil). Nepostojeci fajl daje {}. Vrednosti su karakter stringovi
 # (UTF-8 se dekoduje; neispravan UTF-8 ostaje kako jeste), bajtovi tek na granici sa fs (Naming::fs_bytes).

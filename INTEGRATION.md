@@ -124,7 +124,9 @@ Prefs `plugin.audiocd` (iz `Config::DEFAULTS`); sve se menja na stranici podesav
 | `quietDrive` / `quietSpeed` | 0 / 8 | smanjuje brzinu drajva (`-S`) pri ripu i pri izvlačenju za Play (cd-paranoia); drajv koji ne menja brzinu: rip se ponavlja bez `-S` |
 | `driveOffset` | prazno | cyanrip `-s`; prazno znaci `-s 0` |
 | `autoLoad` | 1 | procita disk cim se ubaci |
-| `autoRip` / `autoRipProfile` | 0 / `balanced` | |
+| `onInsert` | `none` | `none` / `play` / `rip`; zamenjuje `autoRip` (ukljucen `autoRip` se prenosi kao `rip`) |
+| `autoPlayPlayer` | prazno | ID plejera za `onInsert` = `play`; pusta se samo stvarno ubacen disk i samo ako plejer ne svira |
+| `autoRipProfile` | `balanced` | |
 | `ejectAfterRip` | 0 | |
 | `notify` | 1 | |
 | `polling` | 1 | provera drajva na 2 s u pomocnom procesu `audiocd-drive` (rezerva za udev) |

@@ -78,9 +78,13 @@ my %d = %Plugins::AudioCD::Config::DEFAULTS;
 is_deeply(\%d, {
 	device => '/dev/cdrom', profile => 'balanced', flacLevel => 5,
 	quietDrive => 0, quietSpeed => 8, driveOffset => '',
-	autoLoad => 1, autoRip => 0, autoRipProfile => 'balanced',
+	autoLoad => 1, onInsert => 'none', autoPlayPlayer => '', autoRipProfile => 'balanced',
 	ejectAfterRip => 0, notify => 1, polling => 1, secureCache => 0,
 	libraryDir => '', ripsDir => '', noRipWhileLocalPlays => 0,
 }, 'DEFAULTS prema spec-u');
+
+is(Plugins::AudioCD::Config::migrate_on_insert(undef, 1), 'rip', 'migracija: ukljucen autoRip -> rip');
+is(Plugins::AudioCD::Config::migrate_on_insert(undef, 0), undef, 'migracija: iskljucen autoRip -> podrazumevano');
+is(Plugins::AudioCD::Config::migrate_on_insert('none', 1), undef, 'migracija: vec izabrano se ne menja');
 
 done_testing;

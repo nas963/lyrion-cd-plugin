@@ -231,6 +231,16 @@ sub _fetch_cover {
 	return;
 }
 
+# Plejer za automatsko pustanje: povezan i trenutno ne svira.
+sub _auto_player {
+	my $id = $prefs->get('autoPlayPlayer');
+	return (undef, 'plejer nije izabran') unless defined $id && length $id;
+	my $client = Slim::Player::Client::getClient($id);
+	return (undef, "plejer $id nije povezan") unless $client && $client->connected;
+	return (undef, 'plejer ' . $client->name . ' vec svira') if $client->isPlaying;
+	return ($client->id, undef);
+}
+
 # Play: cela lista diska na plejeru, start od izabrane pesme.
 sub _play {
 	my ($client_id, $urls, $idx) = @_;
@@ -390,6 +400,8 @@ sub initPlugin {
 	my $class = shift;
 	$class->SUPER::initPlugin(@_);
 
+	my $on = Plugins::AudioCD::Config::migrate_on_insert($prefs->get('onInsert'), $prefs->get('autoRip'));
+	$prefs->set('onInsert', $on) if defined $on;
 	$prefs->init({ %Plugins::AudioCD::Config::DEFAULTS });
 	Plugins::AudioCD::Jobs::set_io_backend(_io_backend());
 
@@ -437,6 +449,7 @@ sub initPlugin {
 		media_dirs    => \&media_dirs,
 		fetch_cover   => \&_fetch_cover,
 		play          => \&_play,
+		auto_player   => \&_auto_player,
 		eject         => \&_eject,
 		missing_tools => \&_missing_tools,
 		notify        => \&_notify,

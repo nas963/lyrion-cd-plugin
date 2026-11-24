@@ -20,8 +20,8 @@ use Plugins::AudioCD::Config;
 use Plugins::AudioCD::Library;
 use Plugins::AudioCD::Profiles;
 
-my @CHECKBOX = qw(quietDrive autoLoad autoRip ejectAfterRip notify polling secureCache);
-my @SHOWN    = (qw(device ripsDir libraryDir profile quietSpeed driveOffset autoRipProfile), @CHECKBOX);
+my @CHECKBOX = qw(quietDrive autoLoad ejectAfterRip notify polling secureCache);
+my @SHOWN    = (qw(device ripsDir libraryDir profile quietSpeed driveOffset onInsert autoPlayPlayer autoRipProfile), @CHECKBOX);
 
 # Folder postoji (pa se u njega moze pisati) ili se moze napraviti: prvi postojeci predak je folder u koji se pise.
 sub _creatable {
@@ -69,6 +69,14 @@ sub validate {
 		else { $err{$k} = 'PLUGIN_AUDIOCD_SET_ERR_PROFILE' }
 	}
 
+	my $on = $s->('onInsert');
+	if (grep { $_ eq $on } @Plugins::AudioCD::Config::ON_INSERT) { $clean{onInsert} = $on }
+	else { $err{onInsert} = 'PLUGIN_AUDIOCD_SET_ERR_ON_INSERT' }
+
+	my $player = $s->('autoPlayPlayer');
+	if ($player eq '' ? $on ne 'play' : $player =~ /^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}\z/) { $clean{autoPlayPlayer} = $player }
+	else { $err{autoPlayPlayer} = 'PLUGIN_AUDIOCD_SET_ERR_AUTO_PLAY_PLAYER' }
+
 	my $speed = $s->('quietSpeed');
 	if ($speed =~ /^\d{1,2}\z/ && $speed >= 1 && $speed <= 52) { $clean{quietSpeed} = $speed + 0 }
 	else { $err{quietSpeed} = 'PLUGIN_AUDIOCD_SET_ERR_QUIET_SPEED' }
@@ -92,6 +100,24 @@ sub profile_options {
 		my $label = $client ? Slim::Utils::Strings::clientString($client, $tok) : Slim::Utils::Strings::string($tok);
 		{ value => $_, label => $label }
 	} @Plugins::AudioCD::Profiles::NAMES ];
+}
+
+sub on_insert_options {
+	my ($client) = @_;
+	return [ map {
+		my $tok = 'PLUGIN_AUDIOCD_SET_ON_INSERT_' . uc $_;
+		my $label = $client ? Slim::Utils::Strings::clientString($client, $tok) : Slim::Utils::Strings::string($tok);
+		{ value => $_, label => $label }
+	} @Plugins::AudioCD::Config::ON_INSERT ];
+}
+
+# Poznati plejeri po nazivu; sacuvan plejer koji sada nije povezan ostaje u listi (ID).
+sub player_options {
+	my ($saved) = @_;
+	my @p = map { { value => $_->id, label => $_->name } } Slim::Player::Client::clients();
+	@p = sort { lc $a->{label} cmp lc $b->{label} } @p;
+	push @p, { value => $saved, label => $saved } if defined $saved && length $saved && !grep { $_->{value} eq $saved } @p;
+	return [ { value => '', label => '-' }, @p ];
 }
 
 # ---------- Slim::Web::Settings ----------
@@ -127,6 +153,8 @@ sub handler {
 
 	$params->{audiocd} = \%view;
 	$params->{audiocdProfiles} = profile_options($client);
+	$params->{audiocdOnInsert} = on_insert_options($client);
+	$params->{audiocdPlayers} = player_options($view{autoPlayPlayer});
 	$params->{audiocdRipsDefault} = Plugins::AudioCD::Config::default_rips_dir();
 
 	# osnovni handler samo prikazuje: cuvanje je gore (bez saveSettings ne postavlja prefs iz forme)

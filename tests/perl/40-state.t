@@ -120,7 +120,7 @@ sub world {
 	my $w = {
 		toc     => exists $o{toc} ? $o{toc} : $TOC,
 		toc_err => $o{toc_err},
-		prefs   => { device => '/dev/cdrom', autoLoad => 1, autoRip => 0, autoRipProfile => 'secure',
+		prefs   => { device => '/dev/cdrom', autoLoad => 1, onInsert => 'none', autoRipProfile => 'secure',
 			ejectAfterRip => 0, notify => 1, quietDrive => 0, quietSpeed => 8, driveOffset => '',
 			profile => 'balanced', %{ $o{prefs} || {} } },
 		lookup  => FakeLookup->new,
@@ -163,6 +163,7 @@ sub world {
 		media_dirs  => sub { $o{media} // ['/mnt'] },
 		fetch_cover => sub { push @{ $w->{covers} }, [@_] },
 		play        => sub { push @{ $w->{plays} }, [@_]; return (1, undef) },
+		auto_player => sub { exists $w->{auto_player} ? @{ $w->{auto_player} } : ('aa:bb', undef) },
 		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0]; $w->{eject_done} = $_[1] },
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
@@ -675,18 +676,89 @@ sub loaded {
 
 # ---------- auto-rip ----------
 {
-	my $w = loaded(prefs => { autoRip => 1, autoRipProfile => 'secure' });
+	my $w = loaded(prefs => { onInsert => 'rip', autoRipProfile => 'secure' });
 	is(scalar @{ $w->{ripper}{enq} }, 1, 'autoRip: rip posle lookup-a');
 	is($w->{ripper}{enq}[0]{profile}, 'secure', 'autoRip: profil autoRipProfile');
 
-	$w = world(prefs => { autoRip => 1 });
+	$w = world(prefs => { onInsert => 'rip' });
 	$w->{ripper}{history} = [ { id => 'old', discid => $ID, result => 'ok' } ];
 	$w->{state}->on_load;
 	$w->{lookup}->last_cb->(mkresult());
 	is(scalar @{ $w->{ripper}{enq} }, 0, 'autoRip: disk vec uspesno ripovan -> ne ponavlja');
 
-	$w = loaded(prefs => { autoRip => 0 });
-	is(scalar @{ $w->{ripper}{enq} }, 0, 'autoRip 0: nema ripa');
+	$w = loaded(prefs => { onInsert => 'none' });
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'onInsert none: nema ripa');
+}
+
+# ---------- onInsert = play ----------
+{
+	my $ins = sub {    # prazan drajv -> ubacen disk -> lookup
+		my ($w) = @_;
+		$w->{state}->on_drive_status(1, undef);
+		$w->{state}->on_drive_status(4, undef);
+		$w->{lookup}->last_cb->(mkresult());
+		return $w;
+	};
+	my $w = $ins->(world(prefs => { onInsert => 'play' }));
+	is(scalar @{ $w->{plays} }, 1, 'play: ubacen disk se pusta');
+	is($w->{plays}[0][0], 'aa:bb', 'play: izabrani plejer');
+	is($w->{plays}[0][2], 0, 'play: od prve pesme');
+	is(scalar @{ $w->{ripper}{enq} }, 0, 'play: nema ripa');
+
+	$w = $ins->(world(prefs => { onInsert => 'rip' }));
+	is(scalar @{ $w->{plays} }, 0, 'rip: nema pustanja');
+	is(scalar @{ $w->{ripper}{enq} }, 1, 'rip: rip');
+	$w = $ins->(world());
+	is(scalar(@{ $w->{plays} }) + scalar(@{ $w->{ripper}{enq} }), 0, 'none: nista');
+
+	$w = world(prefs => { onInsert => 'play' });    # LMS pokrenut sa diskom u drajvu
+	$w->{state}->on_drive_status(3, undef);
+	$w->{state}->on_drive_status(4, undef);
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{plays} }, 0, 'play: disk zatecen pri startu se ne pusta');
+	$w->{state}->on_load(force => 1);
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{plays} }, 0, 'play: ponovno citanje istog diska se ne pusta');
+
+	$w = $ins->(world(prefs => { onInsert => 'play' }));
+	$w->{cache}->complete_all(9);
+	$w->{state}->on_load(force => 1);
+	$w->{lookup}->last_cb->(mkresult());
+	is(scalar @{ $w->{plays} }, 1, 'play: posle pustanja ponovno citanje ne pusta opet');
+	$w->{state}->on_drive_status(2, undef);
+	$w->{state}->on_drive_status(4, undef);    # metapodaci iz kesa
+	is(scalar @{ $w->{plays} }, 2, 'play: isti disk stvarno ponovo ubacen se pusta');
+
+	$w = world(prefs => { onInsert => 'play' });
+	$w->{auto_player} = [ undef, 'vec svira' ];
+	$ins->($w);
+	is(scalar @{ $w->{plays} }, 0, 'play: zauzet plejer se ne prekida');
+	$w->{auto_player} = [ 'aa:bb', undef ];
+	$w->{state}->on_jobs_changed;
+	is(scalar @{ $w->{plays} }, 0, 'play: kasnije oslobodjen plejer ne krece sam');
+
+	for my $k (qw(cdinfo procs)) {
+		$w = world(prefs => { onInsert => 'play' });
+		$w->{state}->on_drive_status(1, undef);
+		$w->{state}->on_drive_status(4, undef);
+		$w->{$k} = 1;
+		$w->{lookup}->last_cb->(mkresult());
+		is(scalar @{ $w->{plays} }, 0, "play: ceka ($k)");
+		$w->{$k} = 0;
+		$w->{state}->on_jobs_changed;
+		$w->{state}->on_lookup_idle;
+		is(scalar @{ $w->{plays} }, 1, "play: posle cekanja jednom ($k)");
+	}
+
+	$w = world(prefs => { onInsert => 'play' });    # izbacen dok se ceka
+	$w->{state}->on_drive_status(1, undef);
+	$w->{state}->on_drive_status(4, undef);
+	$w->{cdinfo} = 1;
+	$w->{lookup}->last_cb->(mkresult());
+	$w->{cdinfo} = 0;
+	$w->{state}->on_eject;
+	$w->{state}->on_jobs_changed;
+	is(scalar @{ $w->{plays} }, 0, 'play: izbacen disk ponistava odlozeno pustanje');
 }
 
 # ---------- obavestenje na kraju ripa ----------
@@ -809,7 +881,7 @@ sub loaded {
 	ok($ok, 'Play posle cd-info radi');
 
 	# autoRip ceka da cd-info zavrsi
-	$w = world(prefs => { autoRip => 1 });
+	$w = world(prefs => { onInsert => 'rip' });
 	$st = $w->{state};
 	$st->on_load;
 	$w->{cdinfo} = 1;
@@ -917,7 +989,7 @@ sub loaded {
 # ---------- fix round 2: eject_pending, procesi na drajvu, recheck bez polling-a ----------
 {
 	# Eject tokom ripa: dok odlozeni CDROMEJECT ne zavrsi, polling/load/autoRip ne vracaju disk
-	my $w = loaded(prefs => { autoRip => 1 });
+	my $w = loaded(prefs => { onInsert => 'rip' });
 	my $st = $w->{state};
 	$st->on_drive_status(4, undef);
 	is(scalar @{ $w->{ripper}{enq} }, 1, 'autoRip pokrenuo rip');

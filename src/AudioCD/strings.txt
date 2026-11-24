@@ -594,13 +594,41 @@ PLUGIN_AUDIOCD_SET_AUTO_LOAD
 	EN	Read the disc automatically
 	SR	Automatski očitaj disk
 
-PLUGIN_AUDIOCD_SET_AUTO_RIP
-	EN	Rip automatically
-	SR	Automatski rip
+PLUGIN_AUDIOCD_SET_ON_INSERT
+	EN	When a CD is inserted
+	SR	Kad se ubaci CD
 
-PLUGIN_AUDIOCD_SET_AUTO_RIP_DESC
-	EN	Start a rip as soon as a disc is read.
-	SR	Pokreni rip čim se disk očita.
+PLUGIN_AUDIOCD_SET_ON_INSERT_DESC
+	EN	Requires reading the disc automatically.
+	SR	Radi samo kad je uključeno automatsko čitanje diska.
+
+PLUGIN_AUDIOCD_SET_ON_INSERT_NONE
+	EN	Do nothing
+	SR	Ništa
+
+PLUGIN_AUDIOCD_SET_ON_INSERT_PLAY
+	EN	Play it
+	SR	Pusti
+
+PLUGIN_AUDIOCD_SET_ON_INSERT_RIP
+	EN	Rip it
+	SR	Ripuj
+
+PLUGIN_AUDIOCD_SET_AUTO_PLAY_PLAYER
+	EN	Player for automatic playback
+	SR	Plejer za automatsko puštanje
+
+PLUGIN_AUDIOCD_SET_AUTO_PLAY_PLAYER_DESC
+	EN	The CD replaces the queue of this player. Nothing happens if the player is already playing or is not connected.
+	SR	CD zamenjuje listu ovog plejera. Ako plejer već svira ili nije povezan, ništa se ne pokreće.
+
+PLUGIN_AUDIOCD_SET_ERR_ON_INSERT
+	EN	When a CD is inserted: unknown value
+	SR	Kad se ubaci CD: nepoznata vrednost
+
+PLUGIN_AUDIOCD_SET_ERR_AUTO_PLAY_PLAYER
+	EN	Choose a player for automatic playback
+	SR	Izaberi plejer za automatsko puštanje
 
 PLUGIN_AUDIOCD_SET_AUTO_RIP_PROFILE
 	EN	Automatic rip profile
