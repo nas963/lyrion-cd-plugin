@@ -249,7 +249,8 @@
     if (mode !== 'play' && mode !== 'pause') return null;
     var cur = ((r.playlist_loop || [])[0]) || {};
     var m = /^audiocd:\/\/([^\/?#]+)\/(\d+)$/.exec(String(cur.url || ''));
-    return m ? { pid: pid, mode: mode, discid: m[1], n: Number(m[2]) } : null;
+    return m ? { pid: pid, mode: mode, discid: m[1], n: Number(m[2]),
+      idx: Number(r.playlist_cur_index) || 0, count: Number(r.playlist_tracks) || 0 } : null;
   }
 
   // Stanje izabranog plejera; greska ili bez plejera -> nema kontrola (stranica radi i bez toga).
@@ -391,15 +392,16 @@
     return discTracks(snap).filter(function (tr) { return Number(tr.n) === pb.n; })[0] || { n: pb.n };
   }
 
-  // Pause/Nastavi i Stop samo dok izabrani plejer svira ili pauzira CD.
+  // Jedno dugme Play/Pauza/Nastavi; Stop samo dok izabrani plejer svira ili pauzira CD.
   function renderPlayback() {
     var pb = state.playback;
     var tr = playingTrack();
     var view = pb ? { mode: pb.mode, n: pb.n, title: tr && tr.title } : null;
-    $('btn-pause').hidden = $('btn-stop').hidden = !pb;
+    ['btn-prev', 'btn-next', 'btn-stop'].forEach(function (id) { $(id).hidden = !pb; });
     $('now-playing').hidden = !pb;
-    if (!changed('playback', view) || !pb) return setButtons();
-    $('btn-pause').textContent = t(pb.mode === 'pause' ? 'UI_RESUME' : 'UI_PAUSE');
+    if (!changed('playback', view)) return setButtons();
+    $('btn-play').textContent = t(!pb ? 'UI_PLAY' : pb.mode === 'pause' ? 'UI_RESUME' : 'UI_PAUSE');
+    if (!pb) return setButtons();
     $('now-playing').textContent = t(pb.mode === 'pause' ? 'UI_NOW_PAUSED' : 'UI_NOW_PLAYING',
       [pb.n + (tr && tr.title ? '. ' + tr.title : '')]);
     setButtons();
@@ -409,8 +411,11 @@
     var snap = state.snap;
     var ready = !!(snap && snap.status === 'ready' && snap.metadata);
     var busy = state.pending;
-    $('btn-play').disabled = busy || !ready || !$('player').value;
-    $('btn-pause').disabled = $('btn-stop').disabled = busy || !state.playback;
+    $('btn-play').disabled = busy || !(state.playback || (ready && $('player').value));
+    var pb = state.playback;
+    $('btn-stop').disabled = busy || !pb;
+    $('btn-prev').disabled = busy || !pb || pb.idx <= 0;
+    $('btn-next').disabled = busy || !pb || pb.idx >= pb.count - 1;
     var missing = !!(snap && (snap.missing_tools || []).length);
     $('btn-rip').disabled = busy || !ready || missing;
     $('btn-edit').disabled = busy || !ready;
@@ -474,7 +479,7 @@
     if (caching) {
       $('cache-title').textContent = t('UI_CACHE_PROGRESS');
       $('cache-bar').value = Number(cache.percent) || 0;
-      $('cache-text').textContent = t('UI_CACHE_TRACKS', [(cache.done || []).length, discTracks(snap).length]);
+      $('cache-text').textContent = t('UI_CACHE_TRACKS', [(cache.done || []).length, discTracks(snap).length]) + ' | ' + (Number(cache.percent) || 0) + '%';
     }
 
     $('rip-box').hidden = !cur;
@@ -646,9 +651,19 @@
     run(function () { return rpc(pb.pid, params); });
   }
 
-  function togglePause() {
-    var pb = state.playback;
-    if (pb) transport(['pause', pb.mode === 'pause' ? 0 : 1]);
+  // Play/Pauza: prvo svez status plejera (pauza sa drugog kontrolera), da Play ne krene disk iz pocetka
+  // dok je pauziran, a zastarelo dugme ne uradi suprotno od onoga sto na njemu pise.
+  function playPause() {
+    var shown = state.playback ? state.playback.mode : 'stop';
+    var pid = $('player').value;
+    loadPlayback().then(function () {
+      if ($('player').value !== pid) return;
+      var now = state.playback ? state.playback.mode : 'stop';
+      if (now === 'pause' && shown !== 'play') transport(['pause', 0]);
+      else if (now === 'play' && shown === 'play') transport(['pause', 1]);
+      else if (now === 'stop' && shown === 'stop') play(1);
+      else renderPlayback();
+    });
   }
 
   // Izbor odredista (glavni folder -> izvodjac -> ime foldera albuma), pa premestanje.
@@ -776,7 +791,7 @@
   function setStaticText() {
     var map = {
       'h-title': 'TITLE', 'settings-link': 'UI_SETTINGS', 'release-label': 'UI_RELEASE', 'player-label': 'UI_PLAYER',
-      'btn-play': 'UI_PLAY', 'btn-pause': 'UI_PAUSE', 'btn-stop': 'UI_STOP', 'rip-stop-label': 'UI_RIP_STOP_PLAYBACK', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD', 'btn-retry': 'UI_RETRY',
+      'btn-play': 'UI_PLAY', 'btn-stop': 'UI_STOP', 'rip-stop-label': 'UI_RIP_STOP_PLAYBACK', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD', 'btn-retry': 'UI_RETRY',
       'rip-dlg-title': 'UI_RIP_DIALOG_TITLE', 'rip-dir-label': 'UI_RIP_FOLDER', 'rip-profile-label': 'UI_PROFILE',
       'rip-eject-label': 'UI_EJECT_AFTER', 'rip-dlg-cancel': 'UI_CANCEL', 'rip-dlg-go': 'UI_START_RIP',
       'edit-title': 'UI_EDIT_TITLE', 'ed-artist-label': 'UI_ARTIST', 'ed-album-label': 'UI_ALBUM', 'ed-year-label': 'UI_YEAR',
@@ -816,8 +831,13 @@
     $('release').addEventListener('change', function () {
       run(function () { return cmd('select_release', 'index:' + $('release').value); });
     });
-    $('btn-play').addEventListener('click', function () { play(1); });
-    $('btn-pause').addEventListener('click', togglePause);
+    $('btn-play').addEventListener('click', playPause);
+    $('btn-prev').addEventListener('click', function () { transport(['playlist', 'index', '-1']); });
+    $('btn-next').addEventListener('click', function () { transport(['playlist', 'index', '+1']); });
+    [['btn-prev', 'UI_PREV'], ['btn-next', 'UI_NEXT']].forEach(function (b) {
+      $(b[0]).title = t(b[1]);
+      $(b[0]).setAttribute('aria-label', t(b[1]));
+    });
     $('btn-stop').addEventListener('click', function () { transport(['stop']); });
     $('btn-rip').addEventListener('click', openRip);
     $('btn-edit').addEventListener('click', openEdit);

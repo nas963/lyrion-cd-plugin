@@ -104,6 +104,26 @@ sub mk {
     ok $c->ready(5), 'poslednja pesma pred data pesmom se ne proverava';
 }
 
+# ---- napredak tokom pesme ----
+{
+    my $grow = sub { my ($sp, $bytes) = @_; truncate $sp->{out}, $bytes or die "truncate: $!" };
+    my $c = mk();
+    $c->start(mkdisc(), $toc, 1);
+    is $c->status->{percent}, 0, 'pocetak: 0%';
+    $grow->($SPAWNS[0], 60 * 176400 * 0.65 / 2);
+    my $all = 60 * 4 + (350 * 75 - 11400 - 4 * 4500) / 75;    # pesma 5 do data pesme
+    is $c->status->{percent}, int(30 / $all * 100), 'pola prve pesme se vidi';
+    $grow->($SPAWNS[0], 60 * 176400 * 2);
+    my $top = $c->status->{percent};
+    ok $top > 15 && $top * $all < 60 * 100, 'tekuca pesma najvise 99%';
+    $grow->($SPAWNS[0], 1000);
+    is $c->status->{percent}, $top, 'napredak se ne vraca';
+    $grow->($SPAWNS[0], 60 * 50000);
+    finish($SPAWNS[0]);
+    $grow->($SPAWNS[1], 30 * 50000);
+    is $c->status->{percent}, int(90 / $all * 100), 'kompresija procenjena iz gotove pesme';
+}
+
 # ---- argv ----
 {
     my $c = mk(secure => 0);
@@ -203,7 +223,7 @@ sub mk {
     is $c->status->{current}, 1, 'tekuca pesma se ne prekida';
     finish($SPAWNS[0]);
     is $SPAWNS[1]{n}, 5, 'prioritize(5): 5 je sledeca';
-    is $c->status->{percent}, 20, 'percent 20 posle jedne od pet';
+    is $c->status->{percent}, 30, 'percent po trajanju pesama, ne po broju';
     $c->prioritize(1);
     finish($SPAWNS[1]);
     is $SPAWNS[2]{n}, 2, 'prioritize gotove pesme ne menja redosled';

@@ -291,15 +291,49 @@ sub clear {
 	return;
 }
 
+# Deo tekuce pesme koji je izvucen (0..0.99), po velicini .part: kompresija se procenjuje iz gotovih
+# pesama istog diska, a dok ih nema 0.65. Procena se menja, pa vrednost samo raste.
+sub _current_part {
+	my ($self) = @_;
+	my $rec = $self->{current} or return 0;
+	my $len = $self->{lengths} || {};
+	my $secs = $len->{ $rec->{n} } or return 0;
+	my ($b, $s) = (0, 0);
+	for my $n (keys %{ $self->{done} }) {
+		my $l = $len->{$n} or next;
+		$b += -s $self->_file($n) || 0;
+		$s += $l;
+	}
+	my $rate = $s && $b ? $b / $s : BYTES_PER_SEC * 0.65;
+	my $f = (-s $rec->{part} || 0) / ($secs * $rate);
+	$f = 0.99 if $f > 0.99;
+	$rec->{shown} = $f if $f > ($rec->{shown} // 0);
+	return $rec->{shown} // 0;
+}
+
+# Procenat diska po trajanju pesama, ukljucujuci deo tekuce.
+sub _percent {
+	my ($self) = @_;
+	my $len = $self->{lengths} || {};
+	my ($all, $have) = (0, 0);
+	for my $n (@{ $self->{tracks} }) {
+		my $l = $len->{$n} || 1;
+		$all  += $l;
+		$have += $l if $self->{done}{$n};
+	}
+	return 0 unless $all;
+	$have += $self->_current_part * ($len->{ $self->{current}{n} } || 1) if $self->{current};
+	return int($have / $all * 100);
+}
+
 sub status {
 	my ($self) = @_;
-	my $total = scalar @{ $self->{tracks} };
 	my @done  = sort { $a <=> $b } keys %{ $self->{done} };
 	return {
 		done    => \@done,
 		failed  => [ sort { $a <=> $b } keys %{ $self->{failed} } ],
 		current => $self->{current} ? $self->{current}{n} : undef,
-		percent => $total ? int(@done / $total * 100) : 0,
+		percent => $self->_percent,
 	};
 }
 

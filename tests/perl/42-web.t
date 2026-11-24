@@ -181,13 +181,15 @@ unlike($js, qr/run\(cmd\(/, 'run() dobija funkciju, ne gotov zahtev');
 like($js, qr/catch \(e\)/, 'localStorage u try/catch');
 
 # Pause/Nastavi/Stop za CD koji svira na izabranom plejeru; Ripuj nudi da se slusanje prvo zaustavi
-like($page, qr/id="btn-pause" hidden/, 'Pause dugme sakriveno dok CD ne svira');
+unlike($page, qr/id="btn-pause"/, 'Play i Pauza su jedno dugme');
 like($page, qr/id="btn-stop" hidden/, 'Stop dugme sakriveno dok CD ne svira');
 like($page, qr/id="rip-stop-box"[^>]*hidden/, 'rip dijalog: opcija za zaustavljanje sakrivena');
 like($js, qr/\['status', '-', 1, 'tags:u'\]/, 'stanje plejera preko ["status","-",1,"tags:u"]');
 like($js, qr/audiocd:\\\/\\\//, 'CD se prepoznaje po audiocd:// URL-u');
 like($js, qr/transport\(\['stop'\]\)/, 'Stop salje ["stop"]');
-like($js, qr/\['pause', pb\.mode === 'pause' \? 0 : 1\]/, 'Pause/Nastavi salje ["pause", 1|0]');
+like($js, qr/\['pause', $_\]/, "Play\/Pauza salje [pause, $_]") for 0, 1;
+like($page, qr/id="$_" hidden/, "$_ sakriveno dok CD ne svira") for qw(btn-prev btn-next btn-stop);
+like($js, qr/\['playlist', 'index', '\Q$_\E1'\]/, "prethodna/sledeca: $_") for '-', '+';
 like($js, qr/'stop_cache:1'/, 'rip sa zaustavljanjem salje stop_cache:1');
 like($js, qr/res\.busy === 'process'/, 'rip ponavlja dok prekinut proces umire');
 like($css, qr/\.field\[hidden\] \{ display: none; \}/, 'sakriveno .field.check polje se ne prikazuje');

@@ -42,6 +42,14 @@ PLUGIN_AUDIOCD_UI_RESUME
 	EN	Resume
 	SR	Nastavi
 
+PLUGIN_AUDIOCD_UI_PREV
+	EN	Previous track
+	SR	Prethodna pesma
+
+PLUGIN_AUDIOCD_UI_NEXT
+	EN	Next track
+	SR	Sledeća pesma
+
 PLUGIN_AUDIOCD_UI_STOP
 	EN	Stop
 	SR	Stop
