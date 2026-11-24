@@ -20,7 +20,7 @@ use Plugins::AudioCD::Config;
 use Plugins::AudioCD::Library;
 use Plugins::AudioCD::Profiles;
 
-my @CHECKBOX = qw(quietDrive autoLoad ejectAfterRip notify polling secureCache);
+my @CHECKBOX = qw(quietDrive autoLoad ejectAfterRip notify polling secureCache earlyPlay);
 my @SHOWN    = (qw(device ripsDir libraryDir profile quietSpeed driveOffset onInsert autoPlayPlayer autoRipProfile), @CHECKBOX);
 
 # Folder postoji (pa se u njega moze pisati) ili se moze napraviti: prvi postojeci predak je folder u koji se pise.

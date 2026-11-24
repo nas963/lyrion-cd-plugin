@@ -23,6 +23,10 @@ package Plugins::AudioCD::ProtocolHandler;
 #   (tajmer) da pesma bude izvucena i tada popunjavamo RemoteTrack iz fajla.
 # - canDirectStream 0 (File): LMS sam servira fajl plejeru.
 #
+# Rano pustanje (pref earlyPlay): kad .part tekuce pesme ima dovoljno zalihe, new() vraca
+# ProtocolHandler::Growing, koji na kraju rastuceg fajla vraca EINTR (LMS pokusava ponovo na 0.4 s)
+# umesto kraja pesme. Ne za mostove (UPnP/Cast/AirPlay) i ne za plejere koji nisu squeezelite.
+#
 # Plugin (Task 12) registruje handler i daje mu kes:
 #   Slim::Player::ProtocolHandlers->registerHandler(audiocd => 'Plugins::AudioCD::ProtocolHandler');
 #   Plugins::AudioCD::ProtocolHandler->set_cache($cache);
@@ -94,6 +98,44 @@ sub pathFromFileURL {
 	return defined $p ? $p : '';
 }
 
+# LMS otvara pesmu: gotov fajl (i kad je track popunjen iz rastuceg) ili .part koji jos raste.
+sub new {
+	my ($class, $args) = @_;
+	my $track = $args->{song} ? $args->{song}->currentTrack : undef;
+	my ($discid, $n) = $track ? $class->parse_url($track->url) : ();
+	if (defined $n && $CACHE) {
+		if (defined(my $p = $CACHE->path($discid, $n))) {
+			unless ($track->audio_size) {
+				eval { $class->_fill_track($track, $p, $discid, $n); 1 } or $log->warn($track->url . ": citanje tagova: $@");
+			}
+		}
+		elsif (my $rec = $CACHE->growing($discid, $n)) {
+			return Plugins::AudioCD::ProtocolHandler::Growing->open_growing($args, $rec);
+		}
+	}
+	return $class->SUPER::new($args);
+}
+
+# Dok pesma raste, velicina i polozaj kraja nisu poznati: nema premotavanja.
+sub canSeek {
+	my ($class, $client, $song) = @_;
+	my ($discid, $n) = $class->parse_url($song->currentTrack->url);
+	return 0 unless $CACHE && defined $n && defined $CACHE->path($discid, $n);
+	return $class->SUPER::canSeek($client, $song);
+}
+
+# Sme li rano pustanje na svim plejerima grupe?
+sub _early_ok {
+	my ($song) = @_;
+	my $ok = eval {
+		for my $c ($song->master->syncGroupActiveMembers) {
+			return 0 unless ($c->model // '') eq 'squeezelite' && ($c->modelName // '') !~ /bridge/i;
+		}
+		1;
+	};
+	return $ok ? 1 : 0;
+}
+
 sub getMetadataFor {
 	my ($class, $client, $url) = @_;
 	my ($discid, $n) = $class->parse_url($url);
@@ -137,6 +179,22 @@ sub _fill_track {
 	return;
 }
 
+# Popunjava RemoteTrack za pesmu koja jos raste: trajanje iz TOC-a, velicina nepoznata.
+sub _fill_growing {
+	my ($class, $track, $discid, $n) = @_;
+	my %attr = (CT => 'flc', SECS => $CACHE->track_secs($discid, $n), RATE => 44100, SAMPLESIZE => 16,
+		CHANNELS => 2, SIZE => undef, OFFSET => undef, TRACKNUM => $n);
+	if (my $m = _track_meta($discid, $n)) {
+		my ($d, $t) = ($m->{disc}, $m->{track});
+		$attr{TITLE} = $t->{title} if defined $t->{title};
+		my $artist = Plugins::AudioCD::Cache::track_artist($t, $d);
+		$attr{ARTIST} = $artist if defined $artist;
+		$attr{ALBUM}  = $d->{album} if defined $d->{album};
+	}
+	Slim::Schema::RemoteTrack->updateOrCreate($track, \%attr);
+	return;
+}
+
 # Da li LMS jos ceka bas ovu pesmu: status READY i prva je u redu StreamingController-a
 # (_getNextTrack je stavlja na pocetak songqueue pre getNextSong; preskakanje stavlja novu ispred).
 sub _song_active {
@@ -171,7 +229,8 @@ sub getNextTrack {
 	# Pesma dodata mimo audiocd play (lista posle restarta, Add / Play next, ponovo ubacen disk):
 	# Waiter preko ensure pokrece kes ako je taj disk u drajvu, a za drugi disk odmah javlja gresku.
 	my $ensure = Plugins::AudioCD::Plugin->can('ensure_cached');
-	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n, $ensure ? (ensure => $ensure) : ());
+	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n, $ensure ? (ensure => $ensure) : (),
+		_early_ok($song) ? (early => $CACHE->early_bytes) : ());
 	my $check;
 	$check = sub {
 		my ($what, $arg) = $w->poll(_song_active($song));
@@ -180,6 +239,11 @@ sub getNextTrack {
 			return;
 		}
 		undef $check;
+		if ($what eq 'early') {
+			eval { $class->_fill_growing($track, $discid, $n); 1 } or return $fail->("rano pustanje: $@");
+			main::INFOLOG && $log->is_info && $log->info("$url: pustanje tokom ucitavanja");
+			return $successCb->();
+		}
 		if ($what eq 'ready') {
 			eval { $class->_fill_track($track, $arg, $discid, $n); 1 }
 				or $log->warn("$url: citanje tagova: $@");
@@ -191,6 +255,55 @@ sub getNextTrack {
 	};
 	$check->();
 	return;
+}
+
+package Plugins::AudioCD::ProtocolHandler::Growing;
+
+# Otvoren .part pesme koja se jos izvlaci. Kraj fajla nije kraj pesme dok je rec->{state} 'part'.
+
+use strict;
+use warnings;
+
+use Errno ();
+
+our @ISA = ('Plugins::AudioCD::ProtocolHandler');
+
+sub open_growing {
+	my ($class, $args, $rec) = @_;
+	local $Plugins::AudioCD::ProtocolHandler::Growing::PART = $rec->{part};
+	my $self = Slim::Player::Protocols::File::new($class, $args) or return undef;
+	my $song = $args->{song};
+	$song->streamLength(undef);    # nepoznato: bez nastavka po bajtovima (getSeekDataByPosition)
+	$song->totalbytes(0);
+	${*$self}{audiocd_rec} = $rec;
+	return $self;
+}
+
+our $PART;
+sub pathFromFileURL { return defined $PART ? $PART : '' }
+
+sub sysread {
+	my $self = $_[0];
+	my $rec  = ${*$self}{audiocd_rec};
+	my $state = $rec->{state};    # pre citanja: posle 'done' vise nista ne stize
+	my $got = CORE::sysread($self, $_[1], $_[2], $_[3] || 0);
+	return undef unless defined $got;
+	if ($got > 0) {
+		${*$self}{position} += $got;
+	}
+	elsif ($state eq 'part') {
+		$! = Errno::EINTR();
+		return undef;
+	}
+	elsif ($state eq 'gone' && !${*$self}{audiocd_warned}++) {
+		$log->warn(${*$self}{url} . ': izvlacenje prekinuto, pesma se zavrsava ranije');
+	}
+	# pesma je cela: premotavanje je od sada moguce (Song pamti raniji odgovor)
+	if ($state eq 'done' && !${*$self}{audiocd_seekable}++) {
+		my $song = ${*$self}{song};
+		$song->_canSeek(undef) if $song && $song->can('_canSeek');
+	}
+	return $got;
 }
 
 1;

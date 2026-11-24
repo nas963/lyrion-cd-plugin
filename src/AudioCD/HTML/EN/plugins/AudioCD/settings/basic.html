@@ -76,4 +76,8 @@
 		<input type="checkbox" name="pref_secureCache" value="1" [% IF audiocd.secureCache %]checked[% END %]>
 	[% END %]
 
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_EARLY_PLAY" desc="PLUGIN_AUDIOCD_SET_EARLY_PLAY_DESC" %]
+		<input type="checkbox" name="pref_earlyPlay" value="1" [% IF audiocd.earlyPlay %]checked[% END %]>
+	[% END %]
+
 [% PROCESS settings/footer.html %]

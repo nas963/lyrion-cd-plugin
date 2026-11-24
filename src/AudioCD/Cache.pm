@@ -19,6 +19,8 @@ use Plugins::AudioCD::Tools;
 
 use constant WAIT_MAX => 120;    # sekundi cekanja na pesmu bez napretka
 use constant HARD_MAX => 600;    # apsolutna granica cekanja (i dok .part raste)
+use constant EARLY_SECS => 15;     # s muzike u .part pre ranog pustanja (sa secure duplo)
+use constant EARLY_MIN_SPEED => 4; # sporiji drajv ne stize da puni brze nego sto plejer trosi
 use constant ENSURE_RETRY => 60;    # s, ponavljanje pokretanja kesa dok cd-info / proces / lookup pustaju drajv
 
 # MusicBrainz disc ID: 28 znakova base64 (+/= -> ._-), uvek se zavrsava sa '-'.
@@ -71,6 +73,7 @@ sub new {
 		device    => $a{device},    # string ili sub (pref se cita za svaku pesmu)
 		secure    => $a{secure},    # 0|1 ili sub
 		speed     => $a{speed},     # brzina citanja (-S) ili sub; undef = bez ogranicenja
+		early     => $a{early},     # 0|1 ili sub: pustanje dok se pesma jos izvlaci
 		on_change => $a{on_change},
 		paranoia  => $a{paranoia} || Plugins::AudioCD::Tools::find('cd-paranoia') || 'cd-paranoia',
 		flac      => $a{flac} || Plugins::AudioCD::Tools::find('flac') || 'flac',
@@ -190,6 +193,7 @@ sub start {
 		$self->_scan_existing;
 	}
 	$self->{disc}   = $disc;
+	$self->{lengths} = Plugins::AudioCD::DiscId::track_lengths($toc);
 	$self->{failed} = {} unless $o{resume};
 
 	my @audio = map { $_->{n} } Plugins::AudioCD::DiscId::audio_tracks($toc);
@@ -262,6 +266,7 @@ sub stop {
 	$self->{queue} = [];
 	if (my $rec = delete $self->{current}) {
 		$rec->{cancelled} = 1;
+		$rec->{state} = 'gone';
 		$rec->{job}->kill if $rec->{job};
 		unlink $rec->{part};
 	}
@@ -317,6 +322,7 @@ sub waiter {
 		hard     => $t0 + $hm,
 		size     => -1,
 		ensure   => $a{ensure},              # sub($discid, $n) -> ($ok, $err): pokreni kes (State::request_cache)
+		early    => $a{early},               # bajtova u .part za rano pustanje; undef = cekaj celu pesmu
 		retry_to => $t0 + ENSURE_RETRY,
 	}, 'Plugins::AudioCD::Cache::Waiter';
 }
@@ -327,6 +333,30 @@ sub part_size {
 	my $c = $self->{current};
 	return undef unless $c && defined $n && $c->{n} == $n;
 	return -s $c->{part} || 0;
+}
+
+# Trajanje pesme iz TOC-a (s), tacno na sektor.
+sub track_secs {
+	my ($self, $discid, $n) = @_;
+	return undef unless defined $discid && defined $self->{discid} && $discid eq $self->{discid};
+	return $self->{lengths} ? $self->{lengths}{$n} : undef;
+}
+
+# Najmanja velicina .part za rano pustanje (procena za flac -0); undef = rano pustanje iskljuceno.
+sub early_bytes {
+	my ($self) = @_;
+	return undef unless _val($self->{early});
+	my $s = _val($self->{speed});
+	return undef if defined $s && $s =~ /^\d+\z/ && $s < EARLY_MIN_SPEED;
+	return int(EARLY_SECS * ($self->_secure ? 2 : 1) * BYTES_PER_SEC * 0.65);
+}
+
+# Pesma koja se upravo izvlaci: zapis { part, state } ili undef. state: 'part' (raste), 'done'
+# (gotova; .part je preimenovan, otvoren fajl ostaje isti) ili 'gone' (prekinuta ili neuspela).
+sub growing {
+	my ($self, $discid, $n) = @_;
+	return undef unless defined $discid && defined $self->{discid} && $discid eq $self->{discid};
+	return defined $self->part_size($n) ? $self->{current} : undef;
 }
 
 # ---------- izvlacenje ----------
@@ -375,7 +405,7 @@ sub _pump {
 sub _spawn {
 	my ($self, $n) = @_;
 	my $final = $self->_file($n);
-	my $rec = { n => $n, final => $final, part => "$final.part", tail => [] };
+	my $rec = { n => $n, final => $final, part => "$final.part", state => 'part', tail => [] };
 	$self->{current} = $rec;
 	my $job = eval {
 		$self->{spawn}->(
@@ -406,6 +436,7 @@ sub _on_exit {
 		chmod 0644, $rec->{part};
 		if (rename $rec->{part}, $rec->{final}) {
 			$self->{done}{ $rec->{n} } = 1;
+			$rec->{state} = 'done';
 		}
 		else {
 			warn "Cache: rename $rec->{part}: $!\n";
@@ -417,6 +448,7 @@ sub _on_exit {
 		unlink $rec->{part};
 		$self->{failed}{ $rec->{n} } = 1;
 	}
+	$rec->{state} = 'gone' if $rec->{state} ne 'done';
 	delete $self->{current} if $self->{current} && $self->{current} == $rec;
 	$self->_notify;
 	$self->_pump;
@@ -428,7 +460,7 @@ package Plugins::AudioCD::Cache::Waiter;
 use strict;
 use warnings;
 
-# poll($active) -> ('stop') | ('ready', $path) | ('fail', $razlog) | ('wait')
+# poll($active) -> ('stop') | ('ready', $path) | ('early') | ('fail', $razlog) | ('wait')
 #   stop: cekac je zastareo (noviji za isti plejer, ili LMS vise ne ceka ovu pesmu); bez callback-a
 #   wait: pesma je pomerena na pocetak reda; rok se produzava dok .part raste (najvise hard_max)
 sub poll {
@@ -459,6 +491,7 @@ sub poll {
 	return ('fail', 'kes ne izvlaci pesme') unless $c->busy;
 	my $now  = $self->{now}->();
 	my $size = $c->part_size($n);
+	return ('early') if defined $self->{early} && defined $size && $size >= $self->{early};
 	if (defined $size && $size > $self->{size}) {
 		$self->{size}     = $size;
 		$self->{deadline} = $now + $self->{wait_max};

@@ -55,7 +55,7 @@ my $changes = 0;
 sub mk {
     my (%o) = @_;
     @SPAWNS = ();
-    return $C->new(spawn => $fake, dir => $o{dir} // fresh_dir(), device => '/dev/sr0', secure => $o{secure} // 0, speed => $o{speed},
+    return $C->new(spawn => $fake, dir => $o{dir} // fresh_dir(), device => '/dev/sr0', secure => $o{secure} // 0, speed => $o{speed}, early => $o{early},
         on_change => sub { $changes++ }, paranoia => 'cd-paranoia', flac => 'flac');
 }
 
@@ -578,6 +578,45 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     $c2->forget_failed;
     is_deeply $c2->status->{failed}, [], 'forget_failed brise neuspehe';
     ok $c2->resumable($DISCID), 'posle forget_failed: resumable';
+}
+
+# ---- rano pustanje ----
+{
+    is mk()->early_bytes, undef, 'early: iskljuceno';
+    is mk(early => 1, speed => 2)->early_bytes, undef, 'early: prespor drajv';
+    my $base = mk(early => 1)->early_bytes;
+    ok $base > 1_000_000, 'early: zaliha';
+    is mk(early => sub { 1 }, speed => 8)->early_bytes, $base, 'early: brzina 8';
+    is mk(early => 1, secure => 1)->early_bytes, 2 * $base, 'early: sigurno citanje dupla zaliha';
+
+    my $c = mk(early => 1);
+    $c->start(mkdisc(), $toc, 1);
+    is $c->track_secs($DISCID, 1), 60, 'trajanje iz TOC-a';
+    my $w = $c->waiter(key => 'p', discid => $DISCID, n => 1, early => 10);
+    is(($w->poll(1))[0], 'wait', 'early: zaliha jos mala');
+    { open my $fh, '>>', $SPAWNS[0]{out} or die; print {$fh} 'x' x 20; close $fh }
+    is(($w->poll(1))[0], 'early', 'early: dovoljna zaliha');
+    my $w2 = $c->waiter(key => 'q', discid => $DISCID, n => 1);
+    is(($w2->poll(1))[0], 'wait', 'bez early: ceka celu pesmu');
+    my $w3 = $c->waiter(key => 'r', discid => $DISCID, n => 2, early => 1);
+    is(($w3->poll(1))[0], 'wait', 'early: pesma koja se ne izvlaci ceka');
+
+    my $rec = $c->growing($DISCID, 1);
+    is $rec->{state}, 'part', 'growing: raste';
+    is $c->growing($DISCID, 2), undef, 'growing: samo tekuca';
+    is $c->growing('xBFBpdDGyUnu4ofAwN5ZrxozKwM-', 1), undef, 'growing: drugi disk';
+    finish($SPAWNS[0]);
+    is $rec->{state}, 'done', 'growing: gotova';
+    is(($w2->poll(1))[0], 'ready', 'gotova -> ready');
+    my $r2 = $c->growing($DISCID, 2);
+    $c->stop;
+    is $r2->{state}, 'gone', 'growing: prekinuta';
+    my $c2 = mk(early => 1);
+    $c2->start(mkdisc(), $toc, 1);
+    my $r3 = $c2->growing($DISCID, 1);
+    { local $SIG{__WARN__} = sub { }; finish($SPAWNS[0], 1) }
+    is $r3->{state}, 'gone', 'growing: neuspela';
+    $c2->stop;
 }
 
 done_testing;

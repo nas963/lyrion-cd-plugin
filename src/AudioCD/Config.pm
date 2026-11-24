@@ -27,6 +27,7 @@ our %DEFAULTS = (
 	notify               => 1,
 	polling              => 1,
 	secureCache          => 0,
+	earlyPlay            => 1,
 	libraryDir           => '',
 	ripsDir              => '',
 	noRipWhileLocalPlays => 0,

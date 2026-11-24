@@ -571,8 +571,8 @@ PLUGIN_AUDIOCD_SET_QUIET_DRIVE
 	SR	Tiši drajv
 
 PLUGIN_AUDIOCD_SET_QUIET_DRIVE_DESC
-	EN	Limit the reading speed while ripping and while loading tracks for playback. Playback starts later, because a track is loaded before it plays.
-	SR	Ograniči brzinu čitanja pri ripu i pri učitavanju pesama za slušanje. Reprodukcija počinje kasnije, jer se pesma učita pre puštanja.
+	EN	Limit the reading speed while ripping and while loading tracks for playback. Playback may start later.
+	SR	Ograniči brzinu čitanja pri ripu i pri učitavanju pesama za slušanje. Reprodukcija može da počne kasnije.
 
 PLUGIN_AUDIOCD_SET_QUIET_SPEED
 	EN	Quiet drive speed
@@ -653,6 +653,14 @@ PLUGIN_AUDIOCD_SET_POLLING
 PLUGIN_AUDIOCD_SET_POLLING_DESC
 	EN	Fallback when the udev rule is not installed.
 	SR	Rezerva kad udev pravilo nije instalirano.
+
+PLUGIN_AUDIOCD_SET_EARLY_PLAY
+	EN	Start playback right away
+	SR	Počni puštanje odmah
+
+PLUGIN_AUDIOCD_SET_EARLY_PLAY_DESC
+	EN	Play a track while it is still being loaded from the disc. Seeking works once the track is loaded. UPnP, Chromecast and AirPlay bridges, and a reading speed below 4, still wait for the whole track.
+	SR	Pusti pesmu dok se još učitava sa diska. Premotavanje radi kad se pesma učita. UPnP, Chromecast i AirPlay mostovi, i brzina čitanja ispod 4, i dalje čekaju celu pesmu.
 
 PLUGIN_AUDIOCD_SET_SECURE_CACHE
 	EN	Secure caching for playback
