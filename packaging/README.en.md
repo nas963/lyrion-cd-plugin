@@ -4,7 +4,7 @@ A plugin that turns a Lyrion server with an optical drive into a proper CD playe
 
 ## What it does
 - **Automatic disc reading.** When you insert a CD, the plugin reads its table of contents and looks the disc up (MusicBrainz, then GnuDB, plus CD-Text if the disc has it). You get album title, artist, tracks and cover art. If MusicBrainz finds only a fuzzy match, you are offered a choice of releases.
-- **Playback.** Tracks are first read into a RAM cache (`/run/audiocd`) and played from there: bit-perfect and gapless. While the selected player is playing the CD, the plugin page shows **Pause/Resume** and **Stop**, and **Rip** offers to stop playback (and reading the disc for playback) first.
+- **Playback.** Tracks are first read into a RAM cache (`/run/audiocd`) and played from there: bit-perfect and gapless. Music starts once about 15 s is loaded and the rest loads while it plays (seeking works once the track is loaded). With **Direct playback** only the current and the next track are read instead of the whole disc. The plugin page has a CD-player style display (click to change the time shown) and previous, **Play/Pause**, **Stop** and next buttons. When the disc is removed, the player stops and the tracks of that disc leave its playlist. **Rip** offers to stop playback (and reading the disc for playback) first.
 - **Ripping.** The album is ripped to FLAC with `cyanrip` in three profiles: `fast`, `balanced` and `secure` (more retries, lower speed). The result is checked against the AccurateRip database.
 - **Move to library.** You choose where a ripped album goes: a main music folder (e.g. CD, SACD, Hi-Res), then the artist folder (existing or new) and the album folder name. Lyrion then scans only that folder (if it is already scanning the library, the album scan waits for it to finish, at most 30 minutes). An existing folder is never overwritten.
 - **Material Skin.** The CD appears on the Material home screen with cover, track list and buttons for play, rip and eject. In the **Audio CD** menu (My Music) the disc is a single item: open it to get the track list with **Play** and **Add** in the header. Next to the disc are the **Rip** and **Eject** items. The plugin page opened from Material follows its theme (light/dark), plays on the player selected in Material (no separate player picker), and **Settings** opens in a new tab.
@@ -48,12 +48,15 @@ Lyrion: Settings, Plugins, **AudioCD**.
 | Quiet drive speed | 8 | speed (x) when quiet drive is on |
 | Drive offset | (empty) | read offset correction for AccurateRip; find it with `cyanrip -f` (needs a disc that is in the AccurateRip database) |
 | Load disc automatically | on | read metadata as soon as a disc is inserted |
-| Auto rip | off | rip every inserted disc |
+| When a CD is inserted | nothing | nothing / play on the selected player / rip |
+| Player for automatic playback | - | a player that is already playing is not interrupted |
 | Auto rip profile | balanced | |
 | Eject after rip | off | |
 | Notifications | on | udev reports disc insert and eject |
 | Background polling | on | fallback when udev is not available |
 | Secure cache read | off | tracks are read into the cache slower and more carefully |
+| Direct playback | off | no whole-disc loading; works on every player and bridge |
+| Start playback right away | on | not for UPnP, Chromecast and AirPlay bridges, nor a reading speed below 4 |
 
 There is no FLAC compression level: `cyanrip` always uses the maximum.
 

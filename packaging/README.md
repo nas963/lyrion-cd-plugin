@@ -4,7 +4,7 @@ Plugin koji pretvara Lyrion server sa CD uređajem u pravi CD plejer i uređaj z
 
 ## Šta radi
 - **Automatsko čitanje diska.** Kad ubaciš CD, plugin pročita sadržaj i potraži podatke (MusicBrainz, zatim GnuDB, a ako disk ima i CD-Text). Dobiješ naslov albuma, izvođača, pesme i omot. Ako MusicBrainz nađe samo približno poklapanje, ponudi se izbor izdanja.
-- **Slušanje.** Pesme se prvo čitaju u keš u RAM-u (`/run/audiocd`), pa se sviraju odatle: bit-perfect i bez prekida između pesama (gapless). Dok izabrani plejer svira CD, stranica plugina ima **Pauza/Nastavi** i **Stop**, a **Ripuj** nudi da se slušanje (i čitanje diska za slušanje) prvo zaustavi.
+- **Slušanje.** Pesme se prvo čitaju u keš u RAM-u (`/run/audiocd`), pa se sviraju odatle: bit-perfect i bez prekida između pesama (gapless). Muzika kreće čim je učitano oko 15 s, a ostatak se učitava dok svira (premotavanje radi kad se pesma učita). Uz **Direktno puštanje** čitaju se samo tekuća i sledeća pesma, umesto celog diska. Stranica plugina ima displej kao na CD plejeru (klik menja prikaz vremena) i dugmad prethodna, **Play/Pauza**, **Stop** i sledeća. Kad se disk izvadi, plejer staje i pesme tog diska se uklanjaju iz liste. **Ripuj** nudi da se slušanje (i čitanje diska za slušanje) prvo zaustavi.
 - **Snimanje.** Album se snima programom `cyanrip` u FLAC, u tri profila: brz (`fast`), uravnotežen (`balanced`) i siguran (`secure`, sa više ponovnih čitanja i manjom brzinom). Rezultat se proverava preko AccurateRip baze.
 - **Premeštanje u biblioteku.** Biraš gde ide snimljeni album: glavni muzički folder (npr. CD, SACD, Hi-Res), pa folder izvođača (postojeći ili nov) i naziv foldera albuma. Lyrion zatim skenira samo taj folder (ako baš tada skenira biblioteku, skeniranje albuma čeka da to završi, najviše 30 minuta). Postojeći folder se nikad ne prepisuje.
 - **Material Skin.** CD se pojavljuje na početnom ekranu Materiala, sa omotom, listom pesama i dugmadima za sviranje, snimanje i izbacivanje. U meniju **Audio CD** (Moja muzika) disk je jedna stavka: otvori je i dobićeš listu pesama sa dugmadima **Play** i **Add** u zaglavlju. Pored diska su stavke **Ripuj** i **Eject**. Stranica plugina otvorena iz Materiala prati njegovu temu (svetla/tamna), svira na plejeru izabranom u Materialu (bez posebnog izbora plejera), a **Podešavanja** se otvaraju u novom tabu.
@@ -48,12 +48,15 @@ Lyrion: Podešavanja, Dodaci, **AudioCD**.
 | Brzina tihog drajva | 8 | brzina (x) kad je tihi drajv uključen |
 | Offset drajva | (prazno) | korekcija čitanja za AccurateRip; nađi ga sa `cyanrip -f` (treba disk koji je u AccurateRip bazi) |
 | Automatski učitaj disk | uključeno | čitaj podatke čim se disk ubaci |
-| Automatsko snimanje | isključeno | snimi svaki ubačen disk |
+| Kad se ubaci CD | ništa | ništa / pusti na izabranom plejeru / ripuj |
+| Plejer za automatsko puštanje | - | plejer koji već svira se ne prekida |
 | Profil automatskog snimanja | uravnotežen | |
 | Izbaci posle snimanja | isključeno | |
 | Obaveštenja | uključeno | udev javlja kad se disk ubaci ili izvadi |
 | Provera u pozadini | uključeno | dopuna kad udev nije dostupan |
 | Sigurno čitanje u keš | isključeno | pesme se u keš čitaju sporije i pažljivije |
+| Direktno puštanje | isključeno | bez učitavanja celog diska; važi za sve plejere i mostove |
+| Počni puštanje odmah | uključeno | ne važi za UPnP, Chromecast i AirPlay mostove, ni za brzinu čitanja ispod 4 |
 
 FLAC nivo kompresije nema: `cyanrip` uvek koristi najjaču.
 

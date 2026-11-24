@@ -65,7 +65,7 @@ Root je read-only sa overlay-em u RAM-u, pa ovi fajlovi moraju u ISO (ne pisu se
   rezervni CDROMEJECT) radi pomocni proces `audiocd-drive` (dete LMS-a, `nice 10`, ionice `idle`; pokrece ga
   plugin, ne systemd), nikad sam LMS proces; cyanrip i cd-paranoia citaju sa uredjaja.
 - Pomocni proces otvara uredjaj za svaku operaciju (`O_RDONLY|O_NONBLOCK`, deljeno) i odmah ga zatvara, a dok
-  drajv cita drugi proces je u pauzi (bez polling-a, koji inace ide na 2 s). Pauza je asinhrona, salje se tek
+  drajv cita cyanrip, cd-info ili eject (ne i cd-paranoia za Play) je u pauzi (bez polling-a, koji inace ide na 2 s). Pauza je asinhrona, salje se tek
   posle pokretanja posla i ne prekida zahtev koji pomocni proces vec radi. Polling ioctl traje milisekunde, ali
   citanje TOC-a na disku koji se tek zavrce traje sekundama (USB slim drajv). Zato:
   - izbacivanje ceka (provera na 1.5 s, najvise 30 s) dok pomocni proces ima zahtev u toku i dok procesi
