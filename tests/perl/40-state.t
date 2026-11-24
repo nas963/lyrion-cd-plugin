@@ -127,6 +127,7 @@ sub world {
 		cache   => FakeCache->new,
 		ripper  => FakeRipper->new,
 		missing => $o{missing} || [],
+		released => [],
 		plays   => [],
 		covers  => [],
 		ejects  => 0,
@@ -164,6 +165,7 @@ sub world {
 		fetch_cover => sub { push @{ $w->{covers} }, [@_] },
 		play        => sub { push @{ $w->{plays} }, [@_]; return (1, undef) },
 		auto_player => sub { exists $w->{auto_player} ? @{ $w->{auto_player} } : ('aa:bb', undef) },
+		released    => sub { push @{ $w->{released} }, [ $_[0], $w->{cache}{busy} ? 1 : 0 ] },
 		eject       => sub { $w->{ejects}++; push @{ $w->{eject_args} }, $_[0]; $w->{eject_done} = $_[1] },
 		missing_tools => sub { @{ $w->{missing} } },
 		notify      => sub { push @{ $w->{notes} }, $_[0] },
@@ -557,13 +559,22 @@ sub loaded {
 	$w = loaded();
 	$st = $w->{state};
 	$st->request_play('aa:bb', 1);
-	$w->{toc} = $TOC2;
 	my $reads = $w->{reads};
-	my ($lok, $lerr) = $st->on_load;
-	is($lerr->{error}, 'drive_busy', 'load tokom kesiranja -> drive_busy');
-	is($w->{reads}, $reads, 'load tokom kesiranja: nema read_toc ioctl-a');
-	$w->{cache}{busy} = 0;    # kes stao (npr. pesme pukle jer je disk izvadjen)
+	my ($lok, $lerr) = $st->on_load(force => 1);
+	is($lerr->{error}, 'drive_busy', 'force load tokom kesiranja -> drive_busy');
+	is($w->{reads}, $reads, 'force load tokom kesiranja: nema TOC-a');
 	$st->on_load;
+	is($w->{reads}, $reads + 1, 'load tokom kesiranja: TOC se poredi');
+	is($st->snapshot->{status}, 'ready', 'isti disk: stanje ostaje');
+	is($st->drive_busy, 'cache', 'isti disk: izvlacenje nastavlja');
+	$w->{toc} = undef; $w->{toc_err} = 'io';
+	$st->on_load;
+	is($st->drive_busy, 'cache', 'TOC greska tokom kesiranja: izvlacenje nastavlja');
+	is_deeply($w->{released}, [], '...plejeri se ne diraju');
+	$w->{toc} = $TOC2; delete $w->{toc_err};
+	$st->on_load;
+	is_deeply($w->{released}, [ [ $ID, 1 ] ], 'zamenjen disk tokom kesiranja: plejeri staju pre kesa');
+	is($w->{cache}{busy}, 0, 'zamenjen disk: izvlacenje prekinuto');
 	ok($w->{cache}{clears} >= 1, 'zamenjen disk: kes starog obrisan');
 	is($st->snapshot->{status}, 'reading', 'zamenjen disk: reading');
 	isnt($st->snapshot->{discid}, $ID, 'zamenjen disk: novi discid');
@@ -660,13 +671,50 @@ sub loaded {
 	$st->on_drive_status(2, undef);    # CDS_TRAY_OPEN
 	is($st->snapshot->{status}, 'empty', 'polling: disk izvadjen -> eject_event');
 
-	# dok traje posao polling ne radi nista
+	# dok traje rip polling ne radi nista
 	$w = loaded();
+	$st = $w->{state};
+	$st->request_rip;
+	$st->on_drive_status(1, undef);
+	is($st->snapshot->{status}, 'ready', 'polling: ne radi dok traje rip');
+
+	# disk izvadjen dugmetom na drajvu dok se pesme izvlace
+	$w = loaded(prefs => { onInsert => 'play' });
 	$st = $w->{state};
 	$st->on_drive_status(4, undef);
 	$st->request_play('aa:bb', 1);
-	$st->on_drive_status(1, undef);
-	is($st->snapshot->{status}, 'ready', 'polling: ne radi dok traje kesiranje');
+	my $rd = $w->{reads};
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, $rd, 'kesiranje: isti status ne cita TOC');
+	$st->on_drive_status(3, undef);
+	$st->on_drive_status(undef, 'io');
+	is($st->drive_busy, 'cache', 'kesiranje: not ready i greska ne prekidaju');
+	$st->on_drive_status(4, undef);
+	is($w->{reads}, $rd + 1, 'kesiranje: DISC_OK posle toga poredi TOC');
+	is($st->drive_busy, 'cache', 'isti disk: izvlacenje nastavlja');
+	for my $code (1, 2) {
+		$w = loaded(prefs => { onInsert => 'play' });
+		$st = $w->{state};
+		$st->on_drive_status(4, undef);
+		$st->request_play('aa:bb', 1);
+		$st->on_drive_status($code, undef);
+		is($st->snapshot->{status}, 'empty', "kesiranje, status $code: disk izvadjen, ekran prazan");
+		is($w->{cache}{busy}, 0, '...izvlacenje prekinuto');
+		is_deeply($w->{released}, [ [ $ID, 1 ] ], '...plejeri staju pre kesa');
+		my $plays = scalar @{ $w->{plays} };
+		$w->{toc} = $TOC2;
+		$st->on_drive_status(4, undef);
+		isnt($st->snapshot->{discid}, $ID, '...drugi disk se cita');
+		$w->{lookup}->last_cb->(mkresult(discid => $st->snapshot->{discid}, tracks => 3));
+		is(scalar @{ $w->{plays} }, $plays + 1, '...i pusta se sam');
+		is($w->{cache}{clears}, 1, '...kes starog je obrisan');
+	}
+	$w = loaded();
+	$w->{state}->request_play('aa:bb', 1);
+	$w->{toc} = undef; $w->{toc_err} = 'no_disc';
+	$w->{state}->on_load;
+	is($w->{state}->snapshot->{status}, 'empty', 'load tokom kesiranja, TOC kaze nema diska: empty');
+	is_deeply($w->{released}, [ [ $ID, 1 ] ], '...plejeri staju');
 
 	# autoLoad iskljucen: ubacen disk se ne cita sam
 	$w = world(prefs => { autoLoad => 0 });
@@ -912,15 +960,29 @@ sub loaded {
 	$st->on_eject_event;
 	is($st->snapshot->{status}, 'empty', 'eject_event, nema diska -> empty');
 
-	# tokom kesiranja: bez ioctl-a, provera odlozena
+	# tokom kesiranja: status se proverava odmah
 	$w = loaded();
 	$st = $w->{state};
 	$st->request_play('aa:bb', 1);
+	$w->{drive} = [ 3, undef ];
+	$st->on_eject_event;
+	is($st->snapshot->{status}, 'ready', 'eject_event tokom kesiranja, not ready: ostaje');
+	$w->{drive} = [ 4, undef ];
+	$st->on_eject_event;
+	is($st->snapshot->{status}, 'ready', 'eject_event tokom kesiranja, isti disk: ostaje');
+	$w->{drive} = [ 1, undef ];
+	$st->on_eject_event;
+	is($st->snapshot->{status}, 'empty', 'eject_event tokom kesiranja, nema diska: empty');
+
+	# tokom ripa: bez ioctl-a, provera odlozena
+	$w = loaded();
+	$st = $w->{state};
+	$st->request_rip;
 	my $calls = $w->{drive_calls};
 	$st->on_eject_event;
-	is($w->{drive_calls}, $calls, 'eject_event tokom kesiranja: nema ioctl-a');
-	is($st->snapshot->{status}, 'ready', 'eject_event tokom kesiranja: odlozeno');
-	$w->{cache}{busy} = 0;    # pesme pukle, kes stao
+	is($w->{drive_calls}, $calls, 'eject_event tokom ripa: nema ioctl-a');
+	is($st->snapshot->{status}, 'ready', 'eject_event tokom ripa: odlozeno');
+	$w->{ripper}{current} = undef;
 	$st->on_drive_status(1, undef);
 	is($st->snapshot->{status}, 'empty', 'odlozena provera: disk izvadjen -> empty');
 
@@ -928,9 +990,9 @@ sub loaded {
 	$w = loaded();
 	$st = $w->{state};
 	$st->on_drive_status(4, undef);
-	$st->request_play('aa:bb', 1);
+	$st->request_rip;
 	$st->on_eject_event;
-	$w->{cache}{busy} = 0;
+	$w->{ripper}{current} = undef;
 	$w->{toc} = $TOC2;
 	$st->on_drive_status(4, undef);
 	isnt($st->snapshot->{discid}, $ID, 'odlozena provera: novi disk se cita');
@@ -1043,14 +1105,14 @@ sub loaded {
 	# odlozena provera radi i bez polling-a: okida je kraj posla (on_jobs_changed)
 	my $w = loaded(prefs => { polling => 0 });
 	my $st = $w->{state};
-	$st->request_play('aa:bb', 1);
+	$st->request_rip;
 	$st->on_eject_event;
 	my $calls = $w->{drive_calls};
 	$w->{drive} = [ 2, undef ];
 	$st->on_jobs_changed;
-	is($w->{drive_calls}, $calls, 'on_jobs_changed dok kes radi: nista');
-	is($st->snapshot->{status}, 'ready', 'kes jos radi: stanje ostaje');
-	$w->{cache}{busy} = 0;
+	is($w->{drive_calls}, $calls, 'on_jobs_changed dok rip radi: nista');
+	is($st->snapshot->{status}, 'ready', 'rip jos radi: stanje ostaje');
+	$w->{ripper}{current} = undef;
 	$st->on_jobs_changed;
 	is($w->{drive_calls}, $calls + 1, 'kraj posla: jedna provera drajva');
 	is($st->snapshot->{status}, 'empty', 'kraj posla: disk izvadjen -> empty');
@@ -1288,10 +1350,10 @@ sub loaded {
 	$w->{async} = 1;
 	$st = $w->{state};
 	$st->on_eject_event;
-	$st->request_play('aa:bb', 1);
+	$st->request_rip;
 	$w->{status_cbs}[0]->(2, undef);
-	is($st->snapshot->{status}, 'ready', 'provera stigla tokom posla: bez izbacivanja');
-	$w->{cache}{busy} = 0;
+	is($st->snapshot->{status}, 'ready', 'provera stigla tokom ripa: bez izbacivanja');
+	$w->{ripper}{current} = undef;
 	$st->on_jobs_changed;
 	is(scalar @{ $w->{status_cbs} }, 2, 'kraj posla: nova provera');
 	$w->{status_cbs}[1]->(2, undef);
@@ -1301,9 +1363,9 @@ sub loaded {
 	$w = loaded();
 	$w->{async} = 1;
 	$st = $w->{state};
-	$st->request_play('aa:bb', 1);
+	$st->request_rip;
 	$st->on_eject_event;
-	$w->{cache}{busy} = 0;
+	$w->{ripper}{current} = undef;
 	$st->on_jobs_changed;
 	$st->on_jobs_changed;
 	is(scalar @{ $w->{status_cbs} || [] }, 1, 'recheck: jedna provera u letu');

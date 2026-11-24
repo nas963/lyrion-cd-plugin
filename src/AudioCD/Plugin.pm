@@ -25,6 +25,8 @@ use Slim::Music::Import;
 use Slim::Networking::Select;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Player::Client;
+use Slim::Player::Playlist;
+use Slim::Player::Source;
 use Slim::Player::ProtocolHandlers;
 use Slim::Schema;
 use Slim::Utils::Log;
@@ -264,6 +266,22 @@ sub _play {
 	return (1, undef);
 }
 
+# Disk vise nije u drajvu: plejeri staju ako sviraju (ili pauziraju) njegovu pesmu, a pesme tog diska
+# se uklanjaju iz liste. Ostale pesme ostaju.
+sub _released {
+	my ($discid) = @_;
+	my %seen;
+	for my $c (map { $_->master } Slim::Player::Client::clients()) {
+		next if $seen{ $c->id }++;
+		my @idx = Plugins::AudioCD::ProtocolHandler->disc_indexes($discid, Slim::Player::Playlist::playList($c)) or next;
+		my $cur = Slim::Player::Source::playingSongIndex($c);
+		$c->execute(['stop']) if defined $cur && !$c->isStopped && grep { $_ == $cur } @idx;
+		if (@idx == Slim::Player::Playlist::count($c)) { $c->execute([ 'playlist', 'clear' ]) }
+		else { $c->execute([ 'playlist', 'delete', $_ ]) for reverse @idx }
+	}
+	return;
+}
+
 # Zivi procesi koji mogu da drze drajv (cd-info, cd-paranoia, cyanrip, eject, i oni koji jos
 # umiru posle kill-a); premestanja u biblioteku (cp) i pomocni proces za drajv se ne racunaju.
 sub _drive_procs {
@@ -272,7 +290,7 @@ sub _drive_procs {
 	return $n > 0 ? $n : 0;
 }
 
-# Pomocni proces miruje dok drajv cita drugi proces (cd-paranoia, cyanrip, cd-info, eject) ili
+# Pomocni proces miruje dok drajv cita drugi proces (cyanrip, cd-info, eject; ne i cd-paranoia za Play) ili
 # izbacivanje jos traje; poziva se na svaku promenu posla i tajmerom (SYNC_INTERVAL).
 # Pauza je asinhrona (poruka na stdin pomocnika) i salje se tek POSLE pokretanja posla, i zaustavlja
 # samo polling, ne zahtev koji pomocnik vec radi. Polling (ioctl CDROM_DRIVE_STATUS) traje milisekunde,
@@ -287,7 +305,8 @@ sub _drive_procs {
 # posle resume cita TOC (disk je mozda zamenjen tokom posla; isti disk: load je no-op).
 sub _sync_drive {
 	return unless $DRIVE && $STATE;
-	my $busy = $STATE->drive_busy ne 'none' || $STATE->eject_pending ? 1 : 0;
+	# izvlacenje za Play ne pauzira: disk izvadjen ili zamenjen usred izvlacenja mora da se vidi odmah
+	my $busy = $STATE->drive_busy !~ /^(?:none|cache)\z/ || $STATE->eject_pending ? 1 : 0;
 	$STATE->on_drive_resumed if $DRIVE->paused && !$busy;
 	$DRIVE->set_paused($busy);
 	return;
@@ -420,6 +439,7 @@ sub initPlugin {
 	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, candidates => \@cand,
 		device => \&_device, secure => sub { $prefs->get('secureCache') },
 		early => sub { $prefs->get('earlyPlay') },
+		on_mismatch => sub { $STATE->on_load if $STATE },
 		speed => sub { $prefs->get('quietDrive') ? $prefs->get('quietSpeed') : undef },
 		on_change => sub { _sync_drive(); $STATE->on_jobs_changed if $STATE });
 
@@ -451,6 +471,7 @@ sub initPlugin {
 		fetch_cover   => \&_fetch_cover,
 		play          => \&_play,
 		auto_player   => \&_auto_player,
+		released      => \&_released,
 		eject         => \&_eject,
 		missing_tools => \&_missing_tools,
 		notify        => \&_notify,

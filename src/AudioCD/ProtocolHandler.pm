@@ -69,6 +69,16 @@ sub parse_url {
 	return ($discid, $n);
 }
 
+# disc_indexes($discid, \@lista) -> rastuci indeksi pesama tog diska; stavke su objekti ili URL-ovi
+sub disc_indexes {
+	my ($class, $discid, $list) = @_;
+	return grep {
+		my $e = $list->[$_];
+		my ($id) = $class->parse_url(ref $e ? $e->url : $e);
+		defined $id && $id eq $discid;
+	} 0 .. $#{ $list || [] };
+}
+
 sub _disc_info {
 	my ($discid) = @_;
 	my $f = Plugins::AudioCD::Plugin->can('disc_info') or return undef;

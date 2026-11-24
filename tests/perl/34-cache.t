@@ -74,6 +74,36 @@ sub mk {
     chmod 0755, $ro;
 }
 
+# ---- duzina izvucene pesme ----
+{
+    my $flac = sub {
+        my ($sp, $secs) = @_;
+        my $samples = 44100 * $secs;
+        open my $fh, '>:raw', $sp->{out} or die $!;
+        print {$fh} 'fLaC', pack('C4', 0, 0, 0, 34), pack('n2', 4096, 4096), "\0" x 6,
+            pack('NN', (44100 << 12) | (1 << 9) | (15 << 4) | int($samples / 4294967296), $samples % 4294967296), "\0" x 16;
+        close $fh;
+    };
+    my ($mm, $dir) = (0, fresh_dir());
+    @SPAWNS = ();
+    my $c = $C->new(spawn => $fake, dir => $dir, device => '/dev/sr0', on_mismatch => sub { $mm++ }, paranoia => 'p', flac => 'f');
+    $c->start(mkdisc(), $toc, 1);
+    $flac->($SPAWNS[0], 60.5); finish($SPAWNS[0]);
+    ok $c->ready(1), 'duzina kao u TOC-u: pesma je gotova';
+    is $mm, 0, '...bez provere diska';
+    $flac->($SPAWNS[1], 140); finish($SPAWNS[1]);
+    ok !$c->ready(2), 'pesma drugog diska nije prihvacena';
+    ok !-e $SPAWNS[1]{out}, '...i obrisana je';
+    is_deeply $c->status->{failed}, [2], '...vodi se kao neuspela';
+    is $mm, 1, '...trazi se provera diska';
+    $flac->($SPAWNS[2], 30); finish($SPAWNS[2]);
+    ok !$c->ready(3), 'prekratka pesma nije prihvacena';
+    finish($SPAWNS[3]);
+    ok $c->ready(4), 'nepoznata duzina se ne proverava';
+    $flac->($SPAWNS[4], 20); finish($SPAWNS[4]);
+    ok $c->ready(5), 'poslednja pesma pred data pesmom se ne proverava';
+}
+
 # ---- argv ----
 {
     my $c = mk(secure => 0);

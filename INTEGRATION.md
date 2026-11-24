@@ -104,7 +104,9 @@ ima bar 600 MB slobodno za 80-minutni disk (podrazumevano je to deo RAM-a, prove
 napraviti poseban tmpfs na `/run/audiocd` (npr. `size=700M`). Ako je RAM mali, treci kandidat je disk (`/data`),
 sporije ali radi.
 
-Kes PREZIVLJAVA izbacivanje diska: gotove pesme se i dalje sviraju, a isti disk ponovo ubacen nastavlja izvlacenje
+Izvadjen ili zamenjen disk (dugme na drajvu ili Izbaci) zaustavlja plejere koji ga sviraju i uklanja njegove
+pesme iz lista; vazi i usred izvlacenja (polling i udev se tada ne pauziraju, a pesma cija duzina ne odgovara
+TOC-u se odbacuje). Kes PREZIVLJAVA izbacivanje diska: isti disk ponovo ubacen nastavlja izvlacenje
 pesama koje fale. Brise se tek kad se procita DRUGI disk (ili disk bez audio pesama) ili pri restartu LMS-a
 (pokretanje/gasenje plugina). Za procenu RAM-a: do oko 500 MB u `/run` (tmpfs) moze ostati zauzeto i kad je
 drajv prazan, sve do sledeceg drugog diska ili restarta.

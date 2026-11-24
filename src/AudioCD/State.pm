@@ -15,6 +15,7 @@ package Plugins::AudioCD::State;
 #   fetch_cover => sub(\@urls, $dest_path, $cb->($ok))
 #   play        => sub($client_id, \@urls, $start_index) -> ($ok, $err)
 #   auto_player => sub -> ($client_id, undef) | (undef, $razlog)   plejer za onInsert = play (slobodan)
+#   released    => sub($discid)   disk vise nije u drajvu: plejeri koji ga sviraju staju, lista se cisti
 #   eject       => sub($was_busy, $done)    $done->() kad CDROMEJECT zavrsi ili odustane
 #   missing_tools => sub -> imena alata koji nedostaju
 #   notify      => sub($history_entry)       kraj ripa (kad je pref notify)
@@ -26,13 +27,14 @@ package Plugins::AudioCD::State;
 #   on_change   => sub                        stanje promenjeno
 #   log         => sub($nivo, $poruka)
 #
-# Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok je zauzet nema zahteva
-# drajvu (load, eject_event); ioctl-ovi rade u pomocnom procesu (DriveHelper), nikad u LMS-u, pa
+# Pravila: drajv radi jednu stvar (cache, rip ili cd-info iz Lookup-a); dok traje rip ili cd-info nema
+# zahteva drajvu (load, eject_event). Izvlacenje za Play (cache) traje minutima, pa se status i TOC
+# tada proveravaju: otvorena fioka prekida sve, a drugi disk se ne sme citati kao stari; ioctl-ovi rade u pomocnom procesu (DriveHelper), nikad u LMS-u, pa
 # TOC i status stizu asinhrono: odgovor zamenjenog zahteva (noviji load, izbacivanje) se ignorise;
 # greske 'helper' / 'drive_timeout' u statusu ne nose informaciju o disku i ne izbacuju ga;
 # Play tokom ripa samo ako je disk ceo u kesu;
 # drugi Play istog diska koristi isti kes; izbacivanje prekida sve poslove i brise stanje diska,
-# ali kes ostaje: gotove pesme se i dalje sviraju, a kes se brise tek kad se ubaci DRUGI disk
+# plejeri staju (released), ali kes ostaje i brise tek kad se ubaci DRUGI disk
 # (ili pri gasenju); isti disk ponovo ubacen nastavlja izvlacenje pesama koje fale;
 # zakasneli odgovori (lookup, omot) starog diska se ignorisu (brojac generacija).
 
@@ -60,6 +62,7 @@ my %NOOP = (
 	fetch_cover   => sub { },
 	play          => sub { (undef, { error => 'no_player' }) },
 	auto_player   => sub { (undef, 'plejer nije izabran') },
+	released      => sub { },
 	eject         => sub { },
 	missing_tools => sub { () },
 	notify        => sub { },
@@ -149,6 +152,18 @@ sub drive_busy {
 	return 'none';
 }
 
+# Drajv je slobodan ili samo izvlaci pesme za Play: status i TOC smeju da se citaju.
+sub _checkable { my ($self) = @_; return $self->drive_busy =~ /^(?:none|cache)\z/ ? 1 : 0 }
+
+# Disk nije vise u drajvu: pre gasenja kesa, da plejer stane a ne da predje na sledecu pesmu.
+sub _release {
+	my ($self) = @_;
+	my $id = $self->{discid};
+	return unless defined $id;
+	eval { $self->{d}{released}->($id); 1 } or $self->_log(warn => "oslobadjanje plejera: $@");
+	return;
+}
+
 sub _kill_lookup {
 	my ($self) = @_;
 	return unless $self->{d}{lookup_busy}->();
@@ -179,8 +194,10 @@ sub on_load {
 	my ($self, %o) = @_;
 	return _err('stopped') if $self->{stopped};
 	return _err('eject_pending') if $self->{eject_pending};
-	# zauzet drajv: bez zahteva drajvu (pomocnik je pauziran); disk se proverava kad posao zavrsi
-	return _err('drive_busy', busy => $self->drive_busy) if $self->drive_busy ne 'none';
+	# zauzet drajv: bez zahteva drajvu (pomocnik je pauziran); disk se proverava kad posao zavrsi.
+	# Izvlacenje za Play: obican load samo poredi TOC (isti disk: nista, drugi: zamena).
+	my $busy = $self->drive_busy;
+	return _err('drive_busy', busy => $busy) if $busy ne 'none' && !($busy eq 'cache' && !$o{force} && !$o{offline});
 	my $req = ++$self->{toc_seq};
 	$self->{toc_pending} = $req;
 	my %opt = (offline => $o{offline} ? 1 : 0, force => $o{force} ? 1 : 0);
@@ -224,7 +241,7 @@ sub _on_toc {
 		# poceo posao (npr. Play dok se TOC cita), pa je TOC ioctl pukao zbog toga, ne zbog diska
 		my $no_info = $err =~ /^(?:helper|drive_timeout)\z/ ? 1 : 0;
 		my $busy = $self->drive_busy;
-		if ($no_info || $busy ne 'none') {
+		if ($no_info || ($busy ne 'none' && !($busy eq 'cache' && $err eq 'no_disc'))) {
 			# sledeci DISC_OK (restartovan pomocnik, kraj posla) cita ponovo
 			$self->{last_drive} = 0;
 			# ucitan disk ostaje kad obican load (bez force/offline) ne uspe
@@ -232,6 +249,10 @@ sub _on_toc {
 				$self->_log(warn => "TOC nije procitan ($err" . ($no_info ? '' : ", drajv zauzet: $busy") . "); disk ostaje ucitan");
 				return;
 			}
+		}
+		if ($err eq 'no_disc') {
+			$self->_release;
+			$self->{seen_empty} = 1 if defined $self->{discid};
 		}
 		$self->_drop_disc if defined $self->{discid};
 		$self->{gen}++;
@@ -241,6 +262,7 @@ sub _on_toc {
 	}
 	my @audio = Plugins::AudioCD::DiscId::audio_tracks($toc);
 	if (!@audio) {
+		$self->_release;
 		$self->_drop_disc(clear_cache => 1);    # drugi (neaudio) disk: kes izbacenog diska vise ne treba
 		$self->{gen}++;
 		$self->_reset('empty', { code => 'no_audio' });
@@ -255,7 +277,10 @@ sub _on_toc {
 	# stvarno ubacen disk (drajv je bio prazan / fioka otvorena, ili je disk zamenjen): onInsert = play.
 	# Prvo citanje posle starta LMS-a i ponovno citanje istog diska se ne racunaju.
 	my $inserted = delete $self->{seen_empty} || (defined $self->{discid} && !$same) ? 1 : 0;
-	$self->_drop_disc(clear_cache => 1) if defined $self->{discid} && !$same;    # zamenjen disk
+	if (defined $self->{discid} && !$same) {    # zamenjen disk
+		$self->_release;
+		$self->_drop_disc(clear_cache => 1);
+	}
 	$self->{pending_autoplay} = $id if $inserted;
 	# kes izbacenog diska (State je prazan) se brise tek kad je u drajvu drugi disk
 	my $cid = $self->{d}{cache}->discid;
@@ -422,6 +447,7 @@ sub on_lookup_idle {
 
 sub on_eject {
 	my ($self) = @_;
+	$self->_release;
 	$self->_drop_disc;
 	$self->{gen}++;
 	delete $self->{toc_pending};    # TOC koji jos putuje pripada izbacenom disku
@@ -480,7 +506,7 @@ sub on_jobs_changed {
 	my ($self) = @_;
 	$self->_auto_play;
 	return unless $self->{recheck};
-	return if $self->{stopped} || $self->{eject_pending} || $self->{recheck_inflight} || $self->drive_busy ne 'none';
+	return if $self->{stopped} || $self->{eject_pending} || $self->{recheck_inflight} || !$self->_checkable;
 	$self->{recheck_inflight} = 1;
 	$self->_request_status(sub {
 		delete $self->{recheck_inflight};
@@ -503,11 +529,23 @@ sub _note_empty {
 sub _has_disc { my ($self) = @_; return defined $self->{discid} || defined $self->{toc_pending} }
 
 # Polling (dogadjaj pomocnog procesa, samo na promenu) ili odgovor na proveru: status drajva (CDS_*)
-# ili greska. Ne radi nista dok traje posao.
+# ili greska. Ne radi nista dok traje rip ili cd-info.
 sub on_drive_status {
 	my ($self, $code, $err) = @_;
-	return if $self->{stopped} || $self->{eject_pending} || $self->drive_busy ne 'none';
+	return if $self->{stopped} || $self->{eject_pending} || !$self->_checkable;
 	$self->_note_empty($code);
+	if ($self->drive_busy eq 'cache' && !_no_info($code, $err)) {
+		# Izvlacenje za Play: samo pouzdano prazan drajv prekida; "not ready" i greske su prolazne,
+		# ali posle njih DISC_OK ponovo poredi TOC (disk je mozda zamenjen).
+		if (defined $code && ($code == CDS_NO_DISC || $code == CDS_TRAY_OPEN)) {
+			return $self->on_eject;
+		}
+		my $check = delete $self->{recheck} || !$self->{last_drive};
+		my $ok = defined $code && $code == CDS_DISC_OK ? 1 : 0;
+		$self->{last_drive} = $ok;
+		$self->on_load if $ok && $check;
+		return;
+	}
 	return if _no_info($code, $err);    # recheck ostaje: proverava se ponovo kad pomocnik proradi
 	my $ok   = defined $code && $code == CDS_DISC_OK ? 1 : 0;
 	my $prev = $self->{last_drive};
@@ -541,7 +579,7 @@ sub on_eject_event {
 	my ($self) = @_;
 	return _err('stopped') if $self->{stopped};
 	my $busy = $self->drive_busy;
-	if ($busy ne 'none') {
+	if ($busy ne 'none' && $busy ne 'cache') {
 		my $cur = $busy eq 'rip' ? $self->{d}{ripper}->status->{current} : undef;
 		if ($cur && $cur->{eject_after}) {
 			$self->{last_drive} = 1;    # posle ripa polling vidi otvorenu fioku
@@ -554,12 +592,19 @@ sub on_eject_event {
 	$self->_request_status(sub {
 		my ($code, $err) = @_;
 		return if $self->{stopped};
-		if ($self->{eject_pending} || $self->drive_busy ne 'none' || _no_info($code, $err)) {
+		if ($self->{eject_pending} || !$self->_checkable || _no_info($code, $err)) {
 			$self->{recheck} = 1;    # posao je poceo (ili nema odgovora): proverava se kad se drajv oslobodi
 			$what = 'deferred';
 			return;
 		}
+		my $caching = $self->drive_busy eq 'cache';
 		if (defined $code && $code == CDS_DISC_OK) {
+			$what = 'ignored';
+			$self->on_load if $caching;    # neaudio ili drugi disk dok se izvlaci: poredi TOC
+			return;
+		}
+		if ($caching && !(defined $code && ($code == CDS_NO_DISC || $code == CDS_TRAY_OPEN))) {
+			$self->{last_drive} = 0;    # prolazno stanje: sledeci DISC_OK poredi TOC
 			$what = 'ignored';
 			return;
 		}

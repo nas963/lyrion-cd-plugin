@@ -75,6 +75,7 @@ sub new {
 		speed     => $a{speed},     # brzina citanja (-S) ili sub; undef = bez ogranicenja
 		early     => $a{early},     # 0|1 ili sub: pustanje dok se pesma jos izvlaci
 		on_change => $a{on_change},
+		on_mismatch => $a{on_mismatch},    # pesma nije duga kao u TOC-u: u drajvu je mozda drugi disk
 		paranoia  => $a{paranoia} || Plugins::AudioCD::Tools::find('cd-paranoia') || 'cd-paranoia',
 		flac      => $a{flac} || Plugins::AudioCD::Tools::find('flac') || 'flac',
 		discid    => undef,
@@ -194,6 +195,9 @@ sub start {
 	}
 	$self->{disc}   = $disc;
 	$self->{lengths} = Plugins::AudioCD::DiscId::track_lengths($toc);
+	# iza pesme je data pesma (enhanced CD): razmak sesija se ne racuna svuda isto, duzina se ne proverava
+	my @t = sort { $a->{n} <=> $b->{n} } @{ $toc->{tracks} };
+	$self->{no_length} = { map { $t[$_]{n} => 1 } grep { $t[ $_ + 1 ]{data} } 0 .. $#t - 1 };
 	$self->{failed} = {} unless $o{resume};
 
 	my @audio = map { $_->{n} } Plugins::AudioCD::DiscId::audio_tracks($toc);
@@ -425,6 +429,31 @@ sub _spawn {
 	return;
 }
 
+# Trajanje iz FLAC zaglavlja (s) ili undef ako nije FLAC / nepoznato.
+sub _flac_secs {
+	my ($f) = @_;
+	open my $fh, '<:raw', $f or return undef;
+	my $n = read $fh, my $b, 26;
+	close $fh;
+	return undef unless defined $n && $n == 26 && substr($b, 0, 4) eq 'fLaC';
+	my ($hi, $lo) = unpack 'NN', substr($b, 18, 8);
+	my $rate    = $hi >> 12;
+	my $samples = ($hi & 0xF) * 4294967296 + $lo;
+	return $rate && $samples ? $samples / $rate : undef;
+}
+
+# Izvucena pesma mora da bude duga kao u TOC-u diska kome kes pripada (TOC je zaokruzen na sekundu).
+sub _length_ok {
+	my ($self, $rec) = @_;
+	return 1 if $self->{no_length} && $self->{no_length}{ $rec->{n} };
+	my $want = $self->{lengths} ? $self->{lengths}{ $rec->{n} } : undef;
+	my $got  = _flac_secs($rec->{part});
+	return 1 unless defined $want && defined $got;
+	return 1 if abs($got - $want) <= 2;
+	warn sprintf("Cache: pesma %d traje %.1f s umesto %d s; odbacena\n", $rec->{n}, $got, $want);
+	return 0;
+}
+
 sub _on_exit {
 	my ($self, $rec, $status) = @_;
 	return if $rec->{finished}++;
@@ -432,7 +461,13 @@ sub _on_exit {
 		unlink $rec->{part};
 		return;
 	}
-	if ($status == 0 && -s $rec->{part}) {
+	my $mismatch = 0;
+	if ($status == 0 && -s $rec->{part} && !$self->_length_ok($rec)) {
+		unlink $rec->{part};
+		$self->{failed}{ $rec->{n} } = 1;
+		$mismatch = 1;
+	}
+	elsif ($status == 0 && -s $rec->{part}) {
 		chmod 0644, $rec->{part};
 		if (rename $rec->{part}, $rec->{final}) {
 			$self->{done}{ $rec->{n} } = 1;
@@ -452,6 +487,9 @@ sub _on_exit {
 	delete $self->{current} if $self->{current} && $self->{current} == $rec;
 	$self->_notify;
 	$self->_pump;
+	if ($mismatch && $self->{on_mismatch}) {
+		eval { $self->{on_mismatch}->(); 1 } or warn "Cache on_mismatch: $@";
+	}
 	return;
 }
 

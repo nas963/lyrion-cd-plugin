@@ -54,6 +54,9 @@ my $code = q{
 	$o{len} = $song->{streamLength};
 	my $fh2 = Plugins::AudioCD::ProtocolHandler->new({ song => $song, client => FClient->new, transcoder => { streamformat => 'flc' } });
 	$o{class2} = ref $fh2; $o{filled} = $filled;
+	my $u = 'audiocd://dBFBpdDGyUnu4ofAwN5ZrxozKwM-/';
+	$o{idx} = [ Plugins::AudioCD::ProtocolHandler->disc_indexes('dBFBpdDGyUnu4ofAwN5ZrxozKwM-',
+		[ "${u}1", 'file:///a.flac', FTrack->new({ url => "${u}2" }), 'audiocd://spVV8GNAkmFNwX6GlHshBuuA4yU-/1', "${u}3" ]) ];
 	print JSON::PP->new->canonical->encode(\%o);
 };
 my $out = LMSBoot::run($code, $dir);
@@ -73,6 +76,7 @@ is($r->{canseek}, undef, 'zapamcen odgovor o premotavanju je ponisten');
 is_deeply($r->{data_done}, { timeOffset => 100 }, 'ucitana pesma ima seekdata');
 is($r->{len}, undef, 'streamLength nepoznat');
 is($r->{class2}, 'Plugins::AudioCD::ProtocolHandler', 'gotova pesma (premotavanje): obican fajl');
+is_deeply($r->{idx}, [ 0, 2, 4 ], 'indeksi pesama izvadjenog diska u listi');
 is($r->{filled}, 1, 'podaci o gotovom fajlu se popunjavaju pre otvaranja');
 
 done_testing;
