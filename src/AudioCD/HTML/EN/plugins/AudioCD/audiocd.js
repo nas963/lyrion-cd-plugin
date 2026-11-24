@@ -392,15 +392,21 @@
     return discTracks(snap).filter(function (tr) { return Number(tr.n) === pb.n; })[0] || { n: pb.n };
   }
 
-  // Jedno dugme Play/Pauza/Nastavi; Stop samo dok izabrani plejer svira ili pauzira CD.
+  // Dugme sa ikonom: tekst je samo u title i aria-label.
+  function iconText(id, key) {
+    $(id).title = t(key);
+    $(id).setAttribute('aria-label', t(key));
+  }
+
+  // Jedno dugme Play/Pauza/Nastavi; ostala su ukljucena dok izabrani plejer svira ili pauzira CD.
   function renderPlayback() {
     var pb = state.playback;
     var tr = playingTrack();
     var view = pb ? { mode: pb.mode, n: pb.n, title: tr && tr.title } : null;
-    ['btn-prev', 'btn-next', 'btn-stop'].forEach(function (id) { $(id).hidden = !pb; });
     $('now-playing').hidden = !pb;
     if (!changed('playback', view)) return setButtons();
-    $('btn-play').textContent = t(!pb ? 'UI_PLAY' : pb.mode === 'pause' ? 'UI_RESUME' : 'UI_PAUSE');
+    iconText('btn-play', !pb ? 'UI_PLAY' : pb.mode === 'pause' ? 'UI_RESUME' : 'UI_PAUSE');
+    $('btn-play').classList.toggle('playing', !!pb && pb.mode === 'play');
     if (!pb) return setButtons();
     $('now-playing').textContent = t(pb.mode === 'pause' ? 'UI_NOW_PAUSED' : 'UI_NOW_PLAYING',
       [pb.n + (tr && tr.title ? '. ' + tr.title : '')]);
@@ -791,13 +797,17 @@
   function setStaticText() {
     var map = {
       'h-title': 'TITLE', 'settings-link': 'UI_SETTINGS', 'release-label': 'UI_RELEASE', 'player-label': 'UI_PLAYER',
-      'btn-play': 'UI_PLAY', 'btn-stop': 'UI_STOP', 'rip-stop-label': 'UI_RIP_STOP_PLAYBACK', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD', 'btn-retry': 'UI_RETRY',
+      'rip-stop-label': 'UI_RIP_STOP_PLAYBACK', 'btn-rip': 'UI_RIP', 'btn-edit': 'UI_EDIT', 'btn-eject': 'UI_EJECT', 'btn-load': 'UI_LOAD_CD', 'btn-retry': 'UI_RETRY',
       'rip-dlg-title': 'UI_RIP_DIALOG_TITLE', 'rip-dir-label': 'UI_RIP_FOLDER', 'rip-profile-label': 'UI_PROFILE',
       'rip-eject-label': 'UI_EJECT_AFTER', 'rip-dlg-cancel': 'UI_CANCEL', 'rip-dlg-go': 'UI_START_RIP',
       'edit-title': 'UI_EDIT_TITLE', 'ed-artist-label': 'UI_ARTIST', 'ed-album-label': 'UI_ALBUM', 'ed-year-label': 'UI_YEAR',
       'edit-cancel': 'UI_CANCEL', 'edit-save': 'UI_SAVE', 'hist-clear': 'UI_HISTORY_CLEAR'
     };
     Object.keys(map).forEach(function (id) { $(id).textContent = t(map[id]); });
+    iconText('btn-prev', 'UI_PREV');
+    iconText('btn-play', 'UI_PLAY');
+    iconText('btn-stop', 'UI_STOP');
+    iconText('btn-next', 'UI_NEXT');
     var opts = $('rip-profile').options;
     for (var i = 0; i < opts.length; i++) opts[i].textContent = t('UI_PROFILE_' + opts[i].value.toUpperCase());
     $('disc-heading').textContent = '';
@@ -834,10 +844,6 @@
     $('btn-play').addEventListener('click', playPause);
     $('btn-prev').addEventListener('click', function () { transport(['playlist', 'index', '-1']); });
     $('btn-next').addEventListener('click', function () { transport(['playlist', 'index', '+1']); });
-    [['btn-prev', 'UI_PREV'], ['btn-next', 'UI_NEXT']].forEach(function (b) {
-      $(b[0]).title = t(b[1]);
-      $(b[0]).setAttribute('aria-label', t(b[1]));
-    });
     $('btn-stop').addEventListener('click', function () { transport(['stop']); });
     $('btn-rip').addEventListener('click', openRip);
     $('btn-edit').addEventListener('click', openEdit);

@@ -37,15 +37,19 @@
     </div>
 
     <div class="actions">
-      <div class="player-pick">
-        <label for="player" id="player-label"></label>
-        <select id="player"></select>
+      <div class="transport">
+        <div class="player-pick">
+          <label for="player" id="player-label"></label>
+          <select id="player"></select>
+        </div>
+        <div class="buttons">
+          <button type="button" id="btn-prev" class="icon" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM20 6v12l-10-6z"/></svg></button>
+          <button type="button" id="btn-play" class="icon primary" disabled><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+          <button type="button" id="btn-stop" class="icon" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h12v12H6z"/></svg></button>
+          <button type="button" id="btn-next" class="icon" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM4 6v12l10-6z"/></svg></button>
+        </div>
       </div>
       <div class="buttons">
-        <button type="button" id="btn-play" class="primary"></button>
-        <button type="button" id="btn-prev" hidden>⏮&#xFE0E;</button>
-        <button type="button" id="btn-next" hidden>⏭&#xFE0E;</button>
-        <button type="button" id="btn-stop" hidden></button>
         <button type="button" id="btn-rip"></button>
         <button type="button" id="btn-edit"></button>
         <button type="button" id="btn-eject"></button>
