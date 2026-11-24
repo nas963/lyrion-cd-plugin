@@ -28,6 +28,7 @@ our %DEFAULTS = (
 	polling              => 1,
 	secureCache          => 0,
 	earlyPlay            => 1,
+	directPlay           => 0,         # bez ucitavanja celog diska; vazi za sve plejere
 	libraryDir           => '',
 	ripsDir              => '',
 	noRipWhileLocalPlays => 0,

@@ -25,7 +25,8 @@ package Plugins::AudioCD::ProtocolHandler;
 #
 # Rano pustanje (pref earlyPlay): kad .part tekuce pesme ima dovoljno zalihe, new() vraca
 # ProtocolHandler::Growing, koji na kraju rastuceg fajla vraca EINTR (LMS pokusava ponovo na 0.4 s)
-# umesto kraja pesme. Ne za mostove (UPnP/Cast/AirPlay) i ne za plejere koji nisu squeezelite.
+# umesto kraja pesme. Ne za mostove (UPnP/Cast/AirPlay) i ne za plejere koji nisu squeezelite,
+# osim kad je ukljuceno direktno pustanje (pref directPlay): tada vazi za sve plejere.
 #
 # Plugin (Task 12) registruje handler i daje mu kes:
 #   Slim::Player::ProtocolHandlers->registerHandler(audiocd => 'Plugins::AudioCD::ProtocolHandler');
@@ -249,7 +250,7 @@ sub getNextTrack {
 	# Waiter preko ensure pokrece kes ako je taj disk u drajvu, a za drugi disk odmah javlja gresku.
 	my $ensure = Plugins::AudioCD::Plugin->can('ensure_cached');
 	my $w = $CACHE->waiter(key => $key, discid => $discid, n => $n, $ensure ? (ensure => $ensure) : (),
-		_early_ok($song) ? (early => $CACHE->early_bytes) : ());
+		$CACHE->direct || _early_ok($song) ? (early => $CACHE->early_bytes) : ());
 	my $check;
 	$check = sub {
 		my ($what, $arg) = $w->poll(_song_active($song));
@@ -295,6 +296,7 @@ sub open_growing {
 	$song->streamLength(undef);    # nepoznato: bez nastavka po bajtovima (getSeekDataByPosition)
 	$song->totalbytes(0);
 	${*$self}{audiocd_rec} = $rec;
+	Plugins::AudioCD::Cache::add_reader($rec, eval { $args->{client}->master->id } // '', $self);
 	return $self;
 }
 

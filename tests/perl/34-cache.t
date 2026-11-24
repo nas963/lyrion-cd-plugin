@@ -124,6 +124,78 @@ sub mk {
     is $c->status->{percent}, int(90 / $all * 100), 'kompresija procenjena iz gotove pesme';
 }
 
+# ---- skok na drugu pesmu dok se tekuca izvlaci ----
+{
+    my $c = mk(early => 1);
+    $c->start(mkdisc(), $toc, 1);
+    my $w = $c->waiter(key => 'A', discid => $DISCID, n => 3, early => $c->early_bytes);
+    is(($w->poll(1))[0], 'wait', 'skok na 3: ceka');
+    is $SPAWNS[0]{killed}, 1, 'pesma koju niko ne slusa se prekida';
+    is scalar @SPAWNS, 1, 'nova ne krece dok stari proces drzi drajv';
+    ok $c->busy, 'kes je i dalje zauzet';
+    finish($SPAWNS[0], 15);
+    is $SPAWNS[1]{n}, 3, 'posle izlaska starog krece 3';
+    is_deeply $c->{queue}, [4, 5, 1, 2], 'prekinuta pesma ostaje u redu';
+    is_deeply $c->status->{failed}, [], 'prekinuta pesma nije neuspela';
+    $w->poll(1);
+    is $SPAWNS[1]{killed}, 0, 'trazena pesma se ne prekida';
+
+    # pesma koju slusa ili ceka drugi plejer ostaje
+    my $w2 = $c->waiter(key => 'B', discid => $DISCID, n => 5);
+    $w2->poll(1);
+    is $SPAWNS[1]{killed}, 0, 'drugi plejer ceka tekucu: ne prekida se';
+    is $c->{queue}[0], 5, '...a nova je sledeca';
+    delete $c->{waiting}{A};
+    open my $fh, '<', $SPAWNS[1]{out} or die;
+    Plugins::AudioCD::Cache::add_reader($c->{current}, 'A', $fh);
+    $w2->poll(1);
+    is $SPAWNS[1]{killed}, 0, 'drugi plejer cita tekucu: ne prekida se';
+    close $fh;
+    $w2->poll(1);
+    is $SPAWNS[1]{killed}, 1, 'zatvoren citac vise ne drzi pesmu';
+    $c->stop;
+    finish($SPAWNS[1], 15);
+    is scalar @SPAWNS, 2, 'posle stop izlazak starog ne pokrece nista';
+    # sopstveni citac (isti plejer je preskocio) ne drzi pesmu
+    $c->start(mkdisc(), $toc, 1);
+    my $cur = $SPAWNS[-1];
+    open my $fh2, '<', $cur->{out} or die;
+    Plugins::AudioCD::Cache::add_reader($c->{current}, 'A', $fh2);
+    $c->waiter(key => 'A', discid => $DISCID, n => 2)->poll(1);
+    is $cur->{killed}, 1, 'preskakanje na istom plejeru prekida pesmu koju je slusao';
+}
+
+# ---- direktno pustanje ----
+{
+    my $direct = 1;
+    @SPAWNS = ();
+    my $c = $C->new(spawn => $fake, dir => fresh_dir(), device => '/dev/sr0', direct => sub { $direct }, paranoia => 'p', flac => 'f');
+    ok $c->early_bytes, 'direktno: rano pustanje i bez pref early';
+    cmp_ok $c->early_bytes, '<', mk(early => 1)->early_bytes, 'direktno: manja zaliha';
+    @SPAWNS = ();
+    $c->start(mkdisc(), $toc, 2);
+    is_deeply $c->{queue}, [], 'direktno: samo trazena pesma';
+    my @ens;
+    my $mkw = sub { $c->waiter(key => 'A', discid => $DISCID, n => $_[0], early => 2, ensure => sub { push @ens, $_[1]; return $c->start(mkdisc(), $toc, $_[1]) }) };
+    is(($mkw->(2)->poll(1))[0], 'early', 'direktno: pusta se odmah');
+    is_deeply $c->{queue}, [3], 'direktno: sledeca pesma u redu';
+    finish($SPAWNS[0]);
+    is $SPAWNS[1]{n}, 3, 'posle trazene ide sledeca';
+    finish($SPAWNS[1]);
+    ok !$c->busy, 'drajv miruje';
+    ok !$c->resumable($DISCID), 'direktno: nema nastavka celog diska';
+    is(($mkw->(3)->poll(1))[0], 'ready', 'prelaz na 3');
+    is_deeply \@ens, [4], 'direktno: trazi se sledeca pesma';
+    is $SPAWNS[2]{n}, 4, '...i izvlaci se';
+    $mkw->(1)->poll(1);
+    is $SPAWNS[2]{killed}, 1, 'skok nazad prekida izvlacenje';
+    finish($SPAWNS[2], 15);
+    is $SPAWNS[3]{n}, 1, '...i krece trazena pesma';
+    is $c->status->{direct}, 1, 'status nosi direct';
+    $direct = 0;
+    is $c->status->{direct}, 0, 'promena podesavanja vazi odmah';
+}
+
 # ---- argv ----
 {
     my $c = mk(secure => 0);
@@ -385,6 +457,7 @@ for my $case ([ 'die', sub { die "boom\n" } ], [ 'undef', sub { return undef } ]
     my $part = $SPAWNS[0]{out};
     my $grow = sub { open my $fh, '>>', $part or die; print {$fh} 'x' x 10; close $fh };
 
+    $c->{waiting}{x} = { n => 1, t => time };    # drugi plejer ceka tekucu pesmu, pa je cekac q ne prekida
     my $q = $c->waiter(key => 'q', discid => $DISCID, n => 3, now => sub { $T });
     $T = 119;
     is_deeply [ $q->poll(1) ], ['wait'], 'pesma u redu: ceka do 120 s';

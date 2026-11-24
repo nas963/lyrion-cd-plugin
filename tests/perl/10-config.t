@@ -79,7 +79,7 @@ is_deeply(\%d, {
 	device => '/dev/cdrom', profile => 'balanced', flacLevel => 5,
 	quietDrive => 0, quietSpeed => 8, driveOffset => '',
 	autoLoad => 1, onInsert => 'none', autoPlayPlayer => '', autoRipProfile => 'balanced',
-	ejectAfterRip => 0, notify => 1, polling => 1, secureCache => 0, earlyPlay => 1,
+	ejectAfterRip => 0, notify => 1, polling => 1, secureCache => 0, earlyPlay => 1, directPlay => 0,
 	libraryDir => '', ripsDir => '', noRipWhileLocalPlays => 0,
 }, 'DEFAULTS prema spec-u');
 

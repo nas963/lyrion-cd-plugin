@@ -662,6 +662,14 @@ PLUGIN_AUDIOCD_SET_POLLING_DESC
 	EN	Fallback when the udev rule is not installed.
 	SR	Rezerva kad udev pravilo nije instalirano.
 
+PLUGIN_AUDIOCD_SET_DIRECT_PLAY
+	EN	Direct playback (no disc buffering)
+	SR	Direktno puštanje (bez bafera diska)
+
+PLUGIN_AUDIOCD_SET_DIRECT_PLAY_DESC
+	EN	Read only the track being played and the next one instead of loading the whole disc. Skipping to any track starts reading it immediately, on every player including UPnP, Chromecast and AirPlay bridges. The drive works during playback. Seeking still works only once the track is loaded, and a reading speed below 4 still waits for the whole track.
+	SR	Čita samo pesmu koja svira i sledeću, umesto celog diska. Skok na bilo koju pesmu odmah počinje njeno čitanje, na svim plejerima, i na UPnP, Chromecast i AirPlay mostovima. Drajv radi i tokom slušanja. Premotavanje i dalje radi tek kad se pesma učita, a brzina čitanja ispod 4 i dalje čeka celu pesmu.
+
 PLUGIN_AUDIOCD_SET_EARLY_PLAY
 	EN	Start playback right away
 	SR	Počni puštanje odmah

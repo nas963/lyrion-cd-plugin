@@ -133,6 +133,7 @@ Prefs `plugin.audiocd` (iz `Config::DEFAULTS`); sve se menja na stranici podesav
 | `notify` | 1 | |
 | `polling` | 1 | provera drajva na 2 s u pomocnom procesu `audiocd-drive` (rezerva za udev) |
 | `secureCache` | 0 | |
+| `directPlay` | 0 | bez ucitavanja celog diska: izvlaci se samo trazena pesma i sledeca, zaliha oko 5 s, vazi za sve plejere i mostove |
 | `earlyPlay` | 1 | pusta pesmu dok se jos izvlaci (oko 15 s zalihe); ne vazi za mostove (modelName sadrzi Bridge) ni za `quietSpeed` ispod 4 |
 | `libraryDir` | prazno | |
 | `ripsDir` | prazno | vidi odeljak 5 |

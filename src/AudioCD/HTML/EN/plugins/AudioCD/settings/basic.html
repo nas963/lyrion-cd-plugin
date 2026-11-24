@@ -80,4 +80,8 @@
 		<input type="checkbox" name="pref_earlyPlay" value="1" [% IF audiocd.earlyPlay %]checked[% END %]>
 	[% END %]
 
+	[% WRAPPER setting title="PLUGIN_AUDIOCD_SET_DIRECT_PLAY" desc="PLUGIN_AUDIOCD_SET_DIRECT_PLAY_DESC" %]
+		<input type="checkbox" name="pref_directPlay" value="1" [% IF audiocd.directPlay %]checked[% END %]>
+	[% END %]
+
 [% PROCESS settings/footer.html %]

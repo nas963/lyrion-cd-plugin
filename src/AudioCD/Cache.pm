@@ -11,6 +11,7 @@ use warnings;
 use utf8;
 
 use File::Path ();
+use Scalar::Util ();
 use Time::HiRes ();
 
 use Plugins::AudioCD::DiscId;
@@ -20,6 +21,8 @@ use Plugins::AudioCD::Tools;
 use constant WAIT_MAX => 120;    # sekundi cekanja na pesmu bez napretka
 use constant HARD_MAX => 600;    # apsolutna granica cekanja (i dok .part raste)
 use constant EARLY_SECS => 15;     # s muzike u .part pre ranog pustanja (sa secure duplo)
+use constant EARLY_DIRECT => 5;    # isto, za direktno pustanje
+use constant WAITING_TTL => 3;    # s; cekac koji se toliko nije javio vise ne drzi tekucu pesmu
 use constant EARLY_MIN_SPEED => 4; # sporiji drajv ne stize da puni brze nego sto plejer trosi
 use constant ENSURE_RETRY => 60;    # s, ponavljanje pokretanja kesa dok cd-info / proces / lookup pustaju drajv
 
@@ -74,6 +77,7 @@ sub new {
 		secure    => $a{secure},    # 0|1 ili sub
 		speed     => $a{speed},     # brzina citanja (-S) ili sub; undef = bez ogranicenja
 		early     => $a{early},     # 0|1 ili sub: pustanje dok se pesma jos izvlaci
+		direct    => $a{direct},    # 0|1 ili sub: bez ucitavanja celog diska, samo trazena pesma i sledeca
 		on_change => $a{on_change},
 		on_mismatch => $a{on_mismatch},    # pesma nije duga kao u TOC-u: u drajvu je mozda drugi disk
 		paranoia  => $a{paranoia} || Plugins::AudioCD::Tools::find('cd-paranoia') || 'cd-paranoia',
@@ -86,6 +90,8 @@ sub new {
 		failed    => {},
 		current   => undef,
 		waiters   => {},    # kljuc (plejer) => generacija poslednjeg cekaca
+		waiting   => {},    # kljuc => { n, t } dok cekac ceka pesmu
+		dying     => undef, # prekinuta pesma ciji proces jos drzi drajv; sledeca krece kad izadje
 	}, $class;
 }
 
@@ -100,6 +106,7 @@ sub _notify {
 sub _val { my ($v) = @_; return ref $v eq 'CODE' ? $v->() : $v }
 sub _device { my $d = _val($_[0]{device}); return defined $d && length $d ? $d : '/dev/cdrom' }
 sub _secure { return _val($_[0]{secure}) ? 1 : 0 }
+sub direct  { return _val($_[0]{direct}) ? 1 : 0 }
 
 # Opcija brzine za cd-paranoia. Drajv koji ne menja brzinu: cd-paranoia to prijavi i nastavlja.
 sub _speed_args {
@@ -204,11 +211,78 @@ sub start {
 	$self->{tracks} = \@audio;
 	$first = $audio[0] unless defined $first && grep { $_ == $first } @audio;
 	my $cur = $self->{current} ? $self->{current}{n} : 0;
-	$self->{queue} = [ grep { !$self->{done}{$_} && !$self->{failed}{$_} && $_ != $cur } (grep { $_ >= $first } @audio), (grep { $_ < $first } @audio) ];
+	$self->{queue} = $self->_order($first, $cur);
 
 	$self->_notify;
 	$self->_pump;
 	return 1;
+}
+
+# Red izvlacenja od pesme $first: do kraja, pa od pocetka; direktno pustanje: samo ta pesma.
+sub _order {
+	my ($self, $first, $cur) = @_;
+	my @t = @{ $self->{tracks} };
+	my @o = $self->direct ? ($first) : ((grep { $_ >= $first } @t), (grep { $_ < $first } @t));
+	return [ grep { !$self->{done}{$_} && !$self->{failed}{$_} && $_ != $cur } @o ];
+}
+
+# Plejer $key sada trazi pesmu $n. Tekuca pesma koju vise niko ne slusa niti ceka se prekida (skok na
+# drugu pesmu ne sme da ceka njen kraj); ako je nekome potrebna, $n ide prva posle nje.
+sub demand {
+	my ($self, $n, $key) = @_;
+	return if $self->{done}{$n} || $self->{failed}{$n} || !grep { $_ == $n } @{ $self->{tracks} };
+	my $cur = $self->{current};
+	return if $cur && $cur->{n} == $n;
+	if (!grep { $_ == $n } @{ $self->{queue} }) {
+		return unless $self->direct;
+		push @{ $self->{queue} }, $n;
+	}
+	$self->prioritize($n) if $self->{queue}[0] != $n;
+	return if !$cur || $self->_needed($cur, $key);
+	delete $self->{current};
+	$cur->{cancelled} = 1;
+	$cur->{state}     = 'gone';
+	$self->{queue}    = $self->_order($n, 0);
+	$self->{dying}    = $cur if $cur->{job};
+	$cur->{job}->kill if $cur->{job};
+	unlink $cur->{part};
+	$self->_notify;
+	$self->_pump;
+	return;
+}
+
+# Da li tekucu pesmu cita ili ceka neki plejer osim $key.
+sub _needed {
+	my ($self, $rec, $key) = @_;
+	for my $r (@{ $rec->{readers} || [] }) {
+		return 1 if $r->{key} ne $key && $r->{fh} && defined fileno $r->{fh};
+	}
+	my $now = Time::HiRes::time();
+	for my $k (keys %{ $self->{waiting} }) {
+		my $w = $self->{waiting}{$k};
+		return 1 if $k ne $key && $w->{n} == $rec->{n} && $now - $w->{t} < WAITING_TTL;
+	}
+	return 0;
+}
+
+# Plejer $key cita rastuci fajl pesme (ProtocolHandler::Growing); slaba referenca, zatvoren se ne racuna.
+sub add_reader {
+	my ($rec, $key, $fh) = @_;
+	my $r = { key => $key, fh => $fh };
+	Scalar::Util::weaken($r->{fh});
+	push @{ $rec->{readers} }, $r;
+	return;
+}
+
+# Direktno pustanje: pesma iza $n, ako jos treba da se izvuce (za prelaz bez pauze); inace undef.
+sub next_wanted {
+	my ($self, $n) = @_;
+	return undef unless $self->direct;
+	my ($next) = grep { $_ > $n } @{ $self->{tracks} };
+	return undef if !defined $next || $self->{done}{$next} || $self->{failed}{$next};
+	return undef if $self->{current} && $self->{current}{n} == $next;
+	return undef if grep { $_ == $next } @{ $self->{queue} };
+	return $next;
 }
 
 sub prioritize {
@@ -245,7 +319,7 @@ sub busy {
 sub resumable {
 	my ($self, $id) = @_;
 	return 0 unless defined $id && defined $self->{discid} && $id eq $self->{discid};
-	return 0 if $self->busy || !@{ $self->{tracks} };
+	return 0 if $self->busy || !@{ $self->{tracks} } || $self->direct;
 	return (grep { !$self->{done}{$_} && !$self->{failed}{$_} } @{ $self->{tracks} }) ? 1 : 0;
 }
 
@@ -334,6 +408,7 @@ sub status {
 		failed  => [ sort { $a <=> $b } keys %{ $self->{failed} } ],
 		current => $self->{current} ? $self->{current}{n} : undef,
 		percent => $self->_percent,
+		direct  => $self->direct,
 	};
 }
 
@@ -383,10 +458,10 @@ sub track_secs {
 # Najmanja velicina .part za rano pustanje (procena za flac -0); undef = rano pustanje iskljuceno.
 sub early_bytes {
 	my ($self) = @_;
-	return undef unless _val($self->{early});
+	return undef unless _val($self->{early}) || $self->direct;
 	my $s = _val($self->{speed});
 	return undef if defined $s && $s =~ /^\d+\z/ && $s < EARLY_MIN_SPEED;
-	return int(EARLY_SECS * ($self->_secure ? 2 : 1) * BYTES_PER_SEC * 0.65);
+	return int(($self->direct ? EARLY_DIRECT : EARLY_SECS) * ($self->_secure ? 2 : 1) * BYTES_PER_SEC * 0.65);
 }
 
 # Pesma koja se upravo izvlaci: zapis { part, state } ili undef. state: 'part' (raste), 'done'
@@ -430,7 +505,7 @@ sub argv_for {
 
 sub _pump {
 	my ($self) = @_;
-	return if $self->{current} || $self->{pumping};
+	return if $self->{current} || $self->{pumping} || $self->{dying};
 	local $self->{pumping} = 1;
 	while (!$self->{current} && @{ $self->{queue} }) {
 		my $n = shift @{ $self->{queue} };
@@ -492,7 +567,11 @@ sub _on_exit {
 	my ($self, $rec, $status) = @_;
 	return if $rec->{finished}++;
 	if ($rec->{cancelled}) {
-		unlink $rec->{part};
+		unlink $rec->{part} unless $self->{current} && $self->{current}{part} eq $rec->{part};
+		if ($self->{dying} && $self->{dying} == $rec) {
+			$self->{dying} = undef;
+			$self->_pump;
+		}
 		return;
 	}
 	my $mismatch = 0;
@@ -534,11 +613,32 @@ use warnings;
 
 # poll($active) -> ('stop') | ('ready', $path) | ('early') | ('fail', $razlog) | ('wait')
 #   stop: cekac je zastareo (noviji za isti plejer, ili LMS vise ne ceka ovu pesmu); bez callback-a
-#   wait: pesma je pomerena na pocetak reda; rok se produzava dok .part raste (najvise hard_max)
+#   wait: pesma je na redu (Cache::demand); rok se produzava dok .part raste (najvise hard_max)
 sub poll {
 	my ($self, $active) = @_;
 	my $c = $self->{cache};
 	return ('stop') if !$active || ($c->{waiters}{ $self->{key} } // 0) != $self->{gen};
+	my @r = $self->_poll;
+	if ($r[0] eq 'wait') { $c->{waiting}{ $self->{key} } = { n => $self->{n}, t => Time::HiRes::time() } }
+	else                 { delete $c->{waiting}{ $self->{key} } }
+	$self->_ahead if $r[0] =~ /^(?:ready|early)\z/;
+	return @r;
+}
+
+# Direktno pustanje: posle trazene pesme izvlaci se jos samo sledeca.
+sub _ahead {
+	my ($self) = @_;
+	my $c = $self->{cache};
+	my $next = $c->next_wanted($self->{n});
+	return unless defined $next;
+	if ($c->busy) { push @{ $c->{queue} }, $next }
+	elsif ($self->{ensure}) { eval { $self->{ensure}->($self->{discid}, $next); 1 } or warn "Cache: $@" }
+	return;
+}
+
+sub _poll {
+	my ($self) = @_;
+	my $c = $self->{cache};
 	my ($discid, $n) = @$self{qw(discid n)};
 	if (defined(my $p = $c->path($discid, $n))) { return ('ready', $p) }
 	# Kes ne izvlaci ovaj disk (pesma dodata mimo Play-a): pokreni ga jednom; zauzet drajv
@@ -561,6 +661,7 @@ sub poll {
 	return ('fail', 'disk nije u kesu') unless defined $c->discid && defined $discid && $c->discid eq $discid;
 	return ('fail', 'izvlacenje pesme nije uspelo') if $c->{failed}{$n};
 	return ('fail', 'kes ne izvlaci pesme') unless $c->busy;
+	$c->demand($n, $self->{key});
 	my $now  = $self->{now}->();
 	my $size = $c->part_size($n);
 	return ('early') if defined $self->{early} && defined $size && $size >= $self->{early};
@@ -570,7 +671,6 @@ sub poll {
 		$self->{deadline} = $self->{hard} if $self->{deadline} > $self->{hard};
 	}
 	return ('fail', 'isteklo cekanje') if $now >= $self->{deadline};
-	$c->prioritize($n);
 	return ('wait');
 }
 

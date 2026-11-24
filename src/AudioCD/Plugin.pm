@@ -439,6 +439,7 @@ sub initPlugin {
 	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, candidates => \@cand,
 		device => \&_device, secure => sub { $prefs->get('secureCache') },
 		early => sub { $prefs->get('earlyPlay') },
+		direct => sub { $prefs->get('directPlay') },
 		on_mismatch => sub { $STATE->on_load if $STATE },
 		speed => sub { $prefs->get('quietDrive') ? $prefs->get('quietSpeed') : undef },
 		on_change => sub { _sync_drive(); $STATE->on_jobs_changed if $STATE });

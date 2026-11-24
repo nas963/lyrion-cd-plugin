@@ -477,7 +477,7 @@
     var cache = snap.cache || {};
     var rip = snap.rip || {};
     var cur = rip.current, queue = rip.queue || [];
-    var caching = snap.drive_busy === 'cache' || cache.current != null;
+    var caching = !Number(cache.direct) && (snap.drive_busy === 'cache' || cache.current != null);
 
     $('progress').hidden = !(caching || cur || queue.length);
 
