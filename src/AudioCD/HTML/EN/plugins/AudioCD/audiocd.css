@@ -169,7 +169,10 @@ button.lcd:disabled { opacity: 1; cursor: default; }
 .colon i { width: 6px; height: 6px; border-radius: 1px; background: currentColor; }
 .lcd-text { display: block; font-size: 1.1rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .lcd-text:empty, .lcd-cal:empty { display: none; }
-.lcd-cal { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.lcd-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.lcd-total { margin-top: 10px; white-space: nowrap; border: 1px solid transparent; }
+.lcd-total:empty { display: none; }
+.lcd-cal { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 10px; min-width: 0; }
 .lcd-cal span { min-width: 1.6em; padding: 0 3px; text-align: center; border: 1px solid transparent; border-radius: 4px; }
 .lcd-cal .past { opacity: 0.25; }
 .lcd-cal .now { border-color: currentColor; font-weight: 700; }

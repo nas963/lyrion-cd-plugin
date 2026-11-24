@@ -474,11 +474,12 @@
     var pb = playingTrack() ? state.playback : null;
     var tracks = ready ? discTracks(snap) : [];
     var sum = function (from) { return tracks.reduce(function (a, tr) { return a + (Number(tr.n) > from ? Number(tr.length) || 0 : 0); }, 0); };
-    var track = '--', time = '--:--', label = '', text = '';
+    var track = '--', time = '--:--', label = '', text = '', total = '';
     if (pb) {
       var pos = position(pb);
       var left = Math.max(0, (pb.duration || 0) - Math.floor(pos));
       track = two(pb.n);
+      total = clock(sum(0) - sum(pb.n - 1) + Math.floor(pos)) + ' / ' + clock(sum(0));
       time = dispMode === 0 ? clock(pos) : '-' + clock(dispMode === 1 ? left : left + sum(pb.n));
       label = t(['UI_DISP_ELAPSED', 'UI_DISP_REMAIN', 'UI_DISP_TOTAL_REMAIN'][dispMode]);
       // kraj pesme: odmah pitaj plejer sta svira, ne cekaj redovan upit
@@ -495,6 +496,7 @@
     }
     setDigits('lcd-track', track);
     setDigits('lcd-time', time);
+    if (changed('lcd:total', total)) $('lcd-total').textContent = total;
     var view = { m: pb ? pb.mode : '', w: !!(pb && pb.waiting), l: label, x: text, n: pb ? pb.n : 0, c: tracks.map(function (tr) { return Number(tr.n); }), r: !!pb || !!ready };
     if (!changed('display', view)) return;
     $('lcd-track-label').textContent = t(pb ? 'UI_DISP_TRACK' : 'UI_TRACKS');
