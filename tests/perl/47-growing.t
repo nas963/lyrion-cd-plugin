@@ -39,7 +39,8 @@ my $code = q{
 	Plugins::AudioCD::ProtocolHandler->set_cache($cache);
 	my $song = FSong->new({ track => FTrack->new({ url => $url }), _canSeek => 0 });
 	my $fh = Plugins::AudioCD::ProtocolHandler->new({ song => $song, client => FClient->new, transcoder => { streamformat => 'flc' } });
-	my %o = (class => ref $fh, seek_grow => Plugins::AudioCD::ProtocolHandler->canSeek(undef, $song));
+	my %o = (class => ref $fh, seek_grow => Plugins::AudioCD::ProtocolHandler->canSeek(undef, $song),
+		data_grow => Plugins::AudioCD::ProtocolHandler->getSeekData(undef, $song, 100));
 	my $rd = sub { my $b = ''; my $n = $fh->sysread($b, 100); return [ $n, $b, defined $n ? 0 : ($!{EINTR} ? 'EINTR' : "$!") ] };
 	$o{r1} = $rd->(); $o{r2} = $rd->();
 	$app->('drugi');
@@ -49,6 +50,7 @@ my $code = q{
 	$rec->{state} = 'done'; $cache->{path} = "$dir/01.flac";
 	$o{r4} = $rd->(); $o{r5} = $rd->();
 	$o{canseek} = $song->{_canSeek};
+	$o{data_done} = Plugins::AudioCD::ProtocolHandler->getSeekData(undef, $song, 100);
 	$o{len} = $song->{streamLength};
 	my $fh2 = Plugins::AudioCD::ProtocolHandler->new({ song => $song, client => FClient->new, transcoder => { streamformat => 'flc' } });
 	$o{class2} = ref $fh2; $o{filled} = $filled;
@@ -61,12 +63,14 @@ ok($r, 'izvrsava se u LMS okruzenju') or diag $out;
 $r ||= {};
 is($r->{class}, 'Plugins::AudioCD::ProtocolHandler::Growing', 'pesma u izvlacenju: Growing');
 is($r->{seek_grow}, 0, 'dok raste nema premotavanja');
+is($r->{data_grow}, undef, 'dok raste nema ni seekdata (CLI time)');
 is_deeply($r->{r1}, [ 4, 'prvi', 0 ], 'cita sto postoji');
 is_deeply($r->{r2}, [ undef, '', 'EINTR' ], 'kraj rastuceg fajla: EINTR, ne kraj pesme');
 is_deeply($r->{r3}, [ 5, 'drugi', 0 ], 'nastavlja kad fajl poraste');
 is_deeply($r->{r4}, [ 5, 'kraj!', 0 ], 'posle preimenovanja cita ostatak');
 is_deeply($r->{r5}, [ 0, '', 0 ], 'gotova pesma: kraj');
 is($r->{canseek}, undef, 'zapamcen odgovor o premotavanju je ponisten');
+is_deeply($r->{data_done}, { timeOffset => 100 }, 'ucitana pesma ima seekdata');
 is($r->{len}, undef, 'streamLength nepoznat');
 is($r->{class2}, 'Plugins::AudioCD::ProtocolHandler', 'gotova pesma (premotavanje): obican fajl');
 is($r->{filled}, 1, 'podaci o gotovom fajlu se popunjavaju pre otvaranja');

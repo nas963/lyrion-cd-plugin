@@ -124,6 +124,15 @@ sub canSeek {
 	return $class->SUPER::canSeek($client, $song);
 }
 
+# CLI/JSON "time" ne pita canSeek nego trazi seekdata: bez ovoga bi premotavanje van ucitanog
+# dela pustilo pesmu od pocetka sa pogresnim vremenom. undef = LMS ne dira pustanje.
+sub getSeekData {
+	my ($class, $client, $song, $time) = @_;
+	my ($discid, $n) = $class->parse_url($song->currentTrack->url);
+	return undef unless $CACHE && defined $n && defined $CACHE->path($discid, $n);
+	return $class->SUPER::getSeekData($client, $song, $time);
+}
+
 # Sme li rano pustanje na svim plejerima grupe?
 sub _early_ok {
 	my ($song) = @_;
