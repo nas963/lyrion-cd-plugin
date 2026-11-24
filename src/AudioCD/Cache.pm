@@ -70,6 +70,7 @@ sub new {
 		last_error => undef,
 		device    => $a{device},    # string ili sub (pref se cita za svaku pesmu)
 		secure    => $a{secure},    # 0|1 ili sub
+		speed     => $a{speed},     # brzina citanja (-S) ili sub; undef = bez ogranicenja
 		on_change => $a{on_change},
 		paranoia  => $a{paranoia} || Plugins::AudioCD::Tools::find('cd-paranoia') || 'cd-paranoia',
 		flac      => $a{flac} || Plugins::AudioCD::Tools::find('flac') || 'flac',
@@ -95,6 +96,13 @@ sub _notify {
 sub _val { my ($v) = @_; return ref $v eq 'CODE' ? $v->() : $v }
 sub _device { my $d = _val($_[0]{device}); return defined $d && length $d ? $d : '/dev/cdrom' }
 sub _secure { return _val($_[0]{secure}) ? 1 : 0 }
+
+# Opcija brzine za cd-paranoia. Drajv koji ne menja brzinu: cd-paranoia to prijavi i nastavlja.
+sub _speed_args {
+	my ($self) = @_;
+	my $s = _val($self->{speed});
+	return defined $s && $s =~ /^[1-9]\d?\z/ ? ('-S', $s) : ();
+}
 
 sub _disc_dir { "$_[0]{dir}/$_[1]" }
 sub _file { my ($self, $n) = @_; return sprintf('%s/%02d.flac', $self->_disc_dir($self->{discid}), $n) }
@@ -347,7 +355,7 @@ sub argv_for {
 		push @tags, '-T', "$k=" . _clean($v) if defined $v && $v ne '';
 	}
 	return Plugins::AudioCD::Jobs::low_prio(Plugins::AudioCD::Jobs::pipeline(
-		[ $self->{paranoia}, ($self->_secure ? () : '-Z'), '-d', $self->_device, $n, '-' ],
+		[ $self->{paranoia}, ($self->_secure ? () : '-Z'), $self->_speed_args, '-d', $self->_device, $n, '-' ],
 		[ $self->{flac}, '-0', '--silent', '-f', @tags, '-o', $part, '-' ],
 	));
 }

@@ -121,7 +121,7 @@ Prefs `plugin.audiocd` (iz `Config::DEFAULTS`); sve se menja na stranici podesav
 | `device` | `/dev/cdrom` | |
 | `profile` | `balanced` | `fast` (-P 0), `balanced`, `secure` (-P 3 -r 5) |
 | `flacLevel` | 5 | NE postoji u cyanrip-u: uvek max kompresija; vrednost se ignorise (nije u UI-ju) |
-| `quietDrive` / `quietSpeed` | 0 / 8 | smanjuje brzinu drajva (`-S`); drajv koji ne menja brzinu: rip se ponavlja bez `-S` |
+| `quietDrive` / `quietSpeed` | 0 / 8 | smanjuje brzinu drajva (`-S`) pri ripu i pri izvlačenju za Play (cd-paranoia); drajv koji ne menja brzinu: rip se ponavlja bez `-S` |
 | `driveOffset` | prazno | cyanrip `-s`; prazno znaci `-s 0` |
 | `autoLoad` | 1 | procita disk cim se ubaci |
 | `autoRip` / `autoRipProfile` | 0 / `balanced` | |

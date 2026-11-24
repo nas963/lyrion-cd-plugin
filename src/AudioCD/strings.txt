@@ -571,8 +571,8 @@ PLUGIN_AUDIOCD_SET_QUIET_DRIVE
 	SR	Tiši drajv
 
 PLUGIN_AUDIOCD_SET_QUIET_DRIVE_DESC
-	EN	Limit the reading speed while ripping.
-	SR	Ograniči brzinu čitanja pri ripu.
+	EN	Limit the reading speed while ripping and while loading tracks for playback. Playback starts later, because a track is loaded before it plays.
+	SR	Ograniči brzinu čitanja pri ripu i pri učitavanju pesama za slušanje. Reprodukcija počinje kasnije, jer se pesma učita pre puštanja.
 
 PLUGIN_AUDIOCD_SET_QUIET_SPEED
 	EN	Quiet drive speed

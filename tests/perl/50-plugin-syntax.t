@@ -31,6 +31,7 @@ like $out, qr{^Plugins::AudioCD::Plugin PLUGIN_AUDIOCD plugins/AudioCD/settings/
 	open my $p, '<', "$dir/Plugin.pm" or die $!;
 	my $src = do { local $/; <$p> };
 	ok($src !~ qr/device\s*=>\s*_device\(\)/, 'Plugin.pm: device se ne zamrzava pri startu');
+	like($src, qr/speed\s*=>\s*sub \{ \$prefs->get\('quietDrive'\)/, 'Plugin.pm: tisi drajv vazi i za kes');
 	ok($src !~ qr/secure\s*=>\s*\$prefs->get/, 'Plugin.pm: secureCache se ne zamrzava pri startu');
 	ok($src =~ qr/device\s*=>\s*\\&_device/, 'Plugin.pm: device kao code ref');
 }

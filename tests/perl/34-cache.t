@@ -55,7 +55,7 @@ my $changes = 0;
 sub mk {
     my (%o) = @_;
     @SPAWNS = ();
-    return $C->new(spawn => $fake, dir => $o{dir} // fresh_dir(), device => '/dev/sr0', secure => $o{secure} // 0,
+    return $C->new(spawn => $fake, dir => $o{dir} // fresh_dir(), device => '/dev/sr0', secure => $o{secure} // 0, speed => $o{speed},
         on_change => sub { $changes++ }, paranoia => 'cd-paranoia', flac => 'flac');
 }
 
@@ -98,6 +98,23 @@ sub mk {
     unlike $SPAWNS[0]{cmd}, qr/'-Z'/, 'secure => 1: bez -Z';
     like $SPAWNS[0]{cmd}, qr/^set -o pipefail; 'cd-paranoia' '-d' /, 'secure => 1: podrazumevana paranoia';
     $s->stop;
+
+    # tisi drajv: brzina se cita za svaku pesmu
+    my $speed = 8;
+    my $q = mk(speed => sub { $speed });
+    $q->start(mkdisc(), $toc, 1);
+    like $SPAWNS[0]{cmd}, qr/'cd-paranoia' '-Z' '-S' '8' '-d' '\/dev\/sr0' '1' '-'/, 'speed 8: -S 8';
+    $speed = undef;
+    finish($SPAWNS[0]);
+    unlike $SPAWNS[1]{cmd}, qr/'-S'/, 'ogranicenje iskljuceno: sledeca pesma bez -S';
+    $q->stop;
+
+    for my $bad ('', 0, 'abc', '-3', 100) {
+        my $b = mk(speed => $bad);
+        $b->start(mkdisc(), $toc, 1);
+        unlike $SPAWNS[0]{cmd}, qr/'-S'/, "neispravna brzina '$bad': bez -S";
+        $b->stop;
+    }
 }
 
 # ---- device i secure kao code ref: citaju se za svaku pesmu ----

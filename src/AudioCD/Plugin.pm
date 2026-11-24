@@ -407,6 +407,7 @@ sub initPlugin {
 	-d $_ && _clear_dir($_) for @cand;
 	$CACHE = Plugins::AudioCD::Cache->new(dir => $cdir, candidates => \@cand,
 		device => \&_device, secure => sub { $prefs->get('secureCache') },
+		speed => sub { $prefs->get('quietDrive') ? $prefs->get('quietSpeed') : undef },
 		on_change => sub { _sync_drive(); $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(
