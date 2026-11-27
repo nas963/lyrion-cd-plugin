@@ -31,9 +31,11 @@ curl -fsSL https://github.com/nas963/lyrion-cd-plugin/releases/latest/download/g
 
 Ako javi da nedostaje `curl` ili `python3`: `sudo apt install curl python3`.
 
-Naredba preuzme poslednje izdanje, proveri ga i pokrene instalaciju. Isto se radi i ažuriranje.
+Naredba preuzme poslednje izdanje, proveri ga i pokrene instalaciju. Potrebna je samo jednom.
 
-Instalacija kopira plugin u `/var/lib/squeezeboxserver/Plugins/AudioCD`, dodaje udev pravilo i servis koji javlja Lyrionu da je disk ubačen, dodaje korisnika `squeezeboxserver` u grupu `cdrom` i **restartuje Lyrion** (reprodukcija se prekida). Posle toga osveži Material u pregledaču.
+Instalacija stavlja plugin tamo gde Lyrion drži pluginove iz repozitorijuma (`/var/lib/squeezeboxserver/cache/InstalledPlugins/Plugins/AudioCD`) i upisuje u Lyrion repozitorijum `https://nas963.github.io/lyrion-cd-plugin/repo.xml`. Dodaje udev pravilo i servis koji javlja Lyrionu da je disk ubačen, i dodaje korisnika `squeezeboxserver` u grupu `cdrom`. Lyrion se za to vreme zaustavi (reprodukcija se prekida). Posle toga osveži Material u pregledaču.
+
+**Ažuriranje:** nove verzije Lyrion preuzima sam, kao za bilo koji drugi plugin (Podešavanja → Plugins). Ako je tamo uključeno automatsko ažuriranje, nova verzija se instalira pri sledećem restartu Lyriona. Stara ručna instalacija u `/var/lib/squeezeboxserver/Plugins/AudioCD` (do verzije 1.6.0) se pri instalaciji uklanja.
 
 ## Podešavanja
 Lyrion: Podešavanja, Dodaci, **AudioCD**.

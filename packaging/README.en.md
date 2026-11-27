@@ -31,9 +31,11 @@ curl -fsSL https://github.com/nas963/lyrion-cd-plugin/releases/latest/download/g
 
 If it reports that `curl` or `python3` is missing: `sudo apt install curl python3`.
 
-The command downloads the latest release, verifies it and runs the installer. The same command updates an existing installation.
+The command downloads the latest release, verifies it and runs the installer. You only need it once.
 
-The installer copies the plugin to `/var/lib/squeezeboxserver/Plugins/AudioCD`, adds a udev rule and a service that tells Lyrion when a disc is inserted, adds the `squeezeboxserver` user to the `cdrom` group and **restarts Lyrion** (playback stops). Afterwards, reload Material in your browser.
+The installer puts the plugin where Lyrion keeps plugins from repositories (`/var/lib/squeezeboxserver/cache/InstalledPlugins/Plugins/AudioCD`) and adds the repository `https://nas963.github.io/lyrion-cd-plugin/repo.xml` to Lyrion. It also adds a udev rule and a service that tell Lyrion when a disc is inserted, and adds the `squeezeboxserver` user to the `cdrom` group. Lyrion is stopped while this runs (playback stops). Afterwards, reload Material in your browser.
+
+**Updates:** Lyrion downloads new versions itself, as for any other plugin (Settings → Plugins). With automatic updates turned on there, a new version is installed the next time Lyrion restarts. An old manual install in `/var/lib/squeezeboxserver/Plugins/AudioCD` (up to version 1.6.0) is removed by the installer.
 
 ## Settings
 Lyrion: Settings, Plugins, **AudioCD**.

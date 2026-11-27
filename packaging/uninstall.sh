@@ -4,8 +4,12 @@
 # Restartuje Lyrion. Snimljeni albumi (CD-Rips) ostaju, a korisnik squeezeboxserver ostaje u grupi cdrom.
 set -euo pipefail
 
+STAGE="$(cd "$(dirname "$0")" && pwd)"
 PREFS=/var/lib/squeezeboxserver/prefs
-PLUGIN=/var/lib/squeezeboxserver/Plugins/AudioCD
+PLUGIN=/var/lib/squeezeboxserver/cache/InstalledPlugins/Plugins/AudioCD
+OLD_PLUGIN=/var/lib/squeezeboxserver/Plugins/AudioCD
+EXT_PREFS="$PREFS/plugin/extensions.prefs"
+REPO_URL=https://nas963.github.io/lyrion-cd-plugin/repo.xml
 CUSTOM="$PREFS/material-skin/custom.js"
 
 # Uklanja samo AudioCD blok iz fajla (od "// AudioCD start" do "// AudioCD end"); ostalo se ne dira.
@@ -36,7 +40,12 @@ remove_audiocd_block() {
 main() {
     [ "$(id -u)" -eq 0 ] || { echo "Pokreni kao root: sudo bash uninstall.sh"; exit 1; }
 
-    rm -rf "$PLUGIN"
+    # Lyrion stoji dok se menjaju plugin i prefs (pri gasenju upisuje svoje prefs)
+    systemctl stop lyrionmusicserver
+    rm -rf "$PLUGIN" "$OLD_PLUGIN"
+    if [ -f "$EXT_PREFS" ] && [ -f "$STAGE/lms-repo.py" ]; then
+        python3 "$STAGE/lms-repo.py" remove "$EXT_PREFS" AudioCD "$REPO_URL"
+    fi
     rm -f /etc/udev/rules.d/99-audiocd.rules \
           /etc/systemd/system/audiocd-notify@.service \
           /usr/local/lib/audioos/audiocd-notify \
@@ -51,7 +60,7 @@ main() {
     fi
 
     echo "Snimljeni albumi (CD-Rips) i korisnik u grupi cdrom ostaju netaknuti."
-    systemctl restart lyrionmusicserver
+    systemctl start lyrionmusicserver
     systemctl is-active lyrionmusicserver
     echo "UKLONJENO"
 }
