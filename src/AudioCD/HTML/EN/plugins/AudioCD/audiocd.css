@@ -144,6 +144,10 @@ button.lcd, button.lcd:hover:not(:disabled) {
   background: #0a1114; color: #62e6f5; border: 1px solid #26343a; border-radius: 10px;
 }
 button.lcd:disabled { opacity: 1; cursor: default; }
+/* talasni oblik pesme ispod displeja (kao kod Roon-a): iste boje, displej se ne menja */
+canvas.wave { display: block; width: 100%; height: 56px; margin-top: 6px; padding: 6px 16px; box-sizing: border-box;
+  background: #0a1114; border: 1px solid #26343a; border-radius: 10px; cursor: pointer; }
+canvas.wave[hidden] { display: none; }
 .lcd-row { display: flex; align-items: flex-end; gap: 16px; min-height: 66px; }
 .lcd-cell { display: flex; flex-direction: column; gap: 6px; }
 .lcd-time { margin-left: auto; align-items: flex-end; }

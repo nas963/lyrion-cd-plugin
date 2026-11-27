@@ -66,6 +66,10 @@ PLUGIN_AUDIOCD_UI_DISP_TOGGLE
 	EN	Time display: elapsed, remaining, disc remaining
 	SR	Prikaz vremena: proteklo, preostalo, preostalo na disku
 
+PLUGIN_AUDIOCD_UI_WAVE_SEEK
+	EN	Waveform of the track: click to jump to that point
+	SR	Talasni oblik pesme: klik premotava na to mesto
+
 PLUGIN_AUDIOCD_UI_PREV
 	EN	Previous track
 	SR	Prethodna pesma

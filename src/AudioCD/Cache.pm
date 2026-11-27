@@ -17,6 +17,7 @@ use Time::HiRes ();
 use Plugins::AudioCD::DiscId;
 use Plugins::AudioCD::Jobs;
 use Plugins::AudioCD::Tools;
+use Plugins::AudioCD::Wave;
 
 use constant WAIT_MAX => 120;    # sekundi cekanja na pesmu bez napretka
 use constant HARD_MAX => 600;    # apsolutna granica cekanja (i dok .part raste)
@@ -92,6 +93,11 @@ sub new {
 		waiters   => {},    # kljuc (plejer) => generacija poslednjeg cekaca
 		waiting   => {},    # kljuc => { n, t } dok cekac ceka pesmu
 		dying     => undef, # prekinuta pesma ciji proces jos drzi drajv; sledeca krece kad izadje
+		# talasni oblik (Wave.pm): argv pomocnog procesa bez ulaza i izlaza; undef = iskljuceno
+		wave_helper => $a{wave_helper},
+		waves     => {},    # pesme sa gotovim NN.wave.json
+		wave_queue => [],
+		wave_job  => undef, # { n, job }
 	}, $class;
 }
 
@@ -117,6 +123,7 @@ sub _speed_args {
 
 sub _disc_dir { "$_[0]{dir}/$_[1]" }
 sub _file { my ($self, $n) = @_; return sprintf('%s/%02d.flac', $self->_disc_dir($self->{discid}), $n) }
+sub _wave_file { my ($self, $n) = @_; return sprintf('%s/%02d.wave.json', $self->_disc_dir($self->{discid}), $n) }
 
 # Kandidati za folder kesa, redom (Plugin: /run/audiocd, /dev/shm/audiocd, LMS cache); bez njih samo dir.
 sub _candidates {
@@ -164,8 +171,10 @@ sub _scan_existing {
 	closedir $dh;
 	for (@f) {
 		if (/^(\d\d)\.flac\z/) { $self->{done}{ $1 + 0 } = 1 }
-		elsif (/\.part\z/)      { unlink "$d/$_" }
+		elsif (/^(\d\d)\.wave\.json\z/) { $self->{waves}{ $1 + 0 } = 1 }
+		elsif (/\.(?:part|tmp)\z/) { unlink "$d/$_" }
 	}
+	$self->_wave_add($_) for sort { $a <=> $b } grep { !$self->{waves}{$_} } keys %{ $self->{done} };
 	return;
 }
 
@@ -183,6 +192,7 @@ sub start {
 	$self->{last_error} = undef;
 	if (!defined $self->{discid} || $self->{discid} ne $id) {
 		$self->stop;
+		$self->_wave_reset;
 		$self->{done}   = {};
 		$self->{discid} = undef;
 		$self->{tracks} = [];
@@ -356,6 +366,7 @@ sub stop {
 sub clear {
 	my ($self) = @_;
 	$self->stop;
+	$self->_wave_reset;
 	File::Path::remove_tree($self->_disc_dir($self->{discid}), { error => \my $err }) if defined $self->{discid};
 	$self->{discid} = $self->{disc} = undef;
 	$self->{tracks} = [];
@@ -409,6 +420,7 @@ sub status {
 		current => $self->{current} ? $self->{current}{n} : undef,
 		percent => $self->_percent,
 		direct  => $self->direct,
+		waves   => [ sort { $a <=> $b } keys %{ $self->{waves} } ],
 	};
 }
 
@@ -585,6 +597,7 @@ sub _on_exit {
 		if (rename $rec->{part}, $rec->{final}) {
 			$self->{done}{ $rec->{n} } = 1;
 			$rec->{state} = 'done';
+			$self->_wave_add($rec->{n});
 		}
 		else {
 			warn "Cache: rename $rec->{part}: $!\n";
@@ -602,6 +615,95 @@ sub _on_exit {
 	$self->_pump;
 	if ($mismatch && $self->{on_mismatch}) {
 		eval { $self->{on_mismatch}->(); 1 } or warn "Cache on_mismatch: $@";
+	}
+	return;
+}
+
+# ---------- talasni oblik ----------
+
+# wave($discid, $n) -> { points, peak, rms } ili undef dok nije izracunat
+sub wave {
+	my ($self, $discid, $n) = @_;
+	return undef unless defined $discid && defined $self->{discid} && $discid eq $self->{discid};
+	return undef unless defined $n && $self->{waves}{$n};
+	return Plugins::AudioCD::Wave::read_file($self->_wave_file($n));
+}
+
+# Pesma koja se upravo pusta ide prva u red za racunanje.
+sub wave_first {
+	my ($self, $n) = @_;
+	my @q = @{ $self->{wave_queue} };
+	return unless defined $n && grep { $_ == $n } @q;
+	$self->{wave_queue} = [ $n, grep { $_ != $n } @q ];
+	return;
+}
+
+sub _wave_add {
+	my ($self, $n) = @_;
+	return unless $self->{wave_helper} && !$self->{waves}{$n};
+	return if grep { $_ == $n } @{ $self->{wave_queue} };
+	return if $self->{wave_job} && $self->{wave_job}{n} == $n;
+	push @{ $self->{wave_queue} }, $n;
+	$self->_wave_pump;
+	return;
+}
+
+# Jedan proces u isto vreme; drajv ne koristi, pa ne ulazi u busy().
+sub _wave_pump {
+	my ($self) = @_;
+	while (!$self->{wave_job} && @{ $self->{wave_queue} }) {
+		my $n = shift @{ $self->{wave_queue} };
+		next if $self->{waves}{$n} || !$self->{done}{$n};
+		my ($in, $out) = ($self->_file($n), $self->_wave_file($n));
+		my $rec = { n => $n, discid => $self->{discid} };
+		$self->{wave_job} = $rec;
+		my $job = eval {
+			$self->{spawn}->(
+				argv    => [ Plugins::AudioCD::Jobs::low_prio(Plugins::AudioCD::Jobs::pipeline(
+					[ $self->{flac}, '-d', '-c', '-s', '--force-raw-format', '--endian=little', '--sign=signed', $in ],
+					[ @{ $self->{wave_helper} }, '--', $in, $out ],
+				)) ],
+				umask   => 022,
+				on_line => sub { },
+				on_exit => sub { $self->_wave_exit($rec, $_[0], $out) },
+			);
+		};
+		if (!$job && !$rec->{finished}) {
+			warn "Cache: talas pesme $n nije pokrenut: " . ($@ || 'nema posla') . "
+";
+			$rec->{finished} = 1;
+			$self->{wave_job} = undef;
+			next;
+		}
+		$rec->{job} = $job unless $rec->{finished};
+	}
+	return;
+}
+
+sub _wave_exit {
+	my ($self, $rec, $status, $out) = @_;
+	return if $rec->{finished}++;
+	return if $rec->{cancelled};
+	if ($status == 0 && -s $out && defined $self->{discid} && $self->{discid} eq $rec->{discid}) {
+		$self->{waves}{ $rec->{n} } = 1;
+	}
+	else {
+		warn "Cache: talas pesme $rec->{n} nije izracunat (status $status)
+" if $status;
+		unlink $out, "$out.tmp";
+	}
+	$self->{wave_job} = undef if $self->{wave_job} && $self->{wave_job} == $rec;
+	$self->_wave_pump;
+	return;
+}
+
+sub _wave_reset {
+	my ($self) = @_;
+	$self->{wave_queue} = [];
+	$self->{waves} = {};
+	if (my $rec = delete $self->{wave_job}) {
+		$rec->{cancelled} = 1;
+		$rec->{job}->kill if $rec->{job};
 	}
 	return;
 }

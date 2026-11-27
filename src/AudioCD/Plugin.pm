@@ -319,6 +319,12 @@ sub _sync_tick {
 	return;
 }
 
+# Talasni oblik pesme (Wave.pm) racuna se u posebnom perl procesu, iz gotovog fajla u kesu.
+sub _wave_helper {
+	my $perl = defined $^X && -x $^X ? $^X : '/usr/bin/perl';
+	return [ $perl, '-I', $PLUGIN_ROOT, '-MPlugins::AudioCD::Wave', '-e', 'Plugins::AudioCD::Wave::main()' ];
+}
+
 sub _helper_argv {
 	my ($paused) = @_;
 	my $perl = defined $^X && -x $^X ? $^X : '/usr/bin/perl';
@@ -442,6 +448,7 @@ sub initPlugin {
 		direct => sub { $prefs->get('directPlay') },
 		on_mismatch => sub { $STATE->on_load if $STATE },
 		speed => sub { $prefs->get('quietDrive') ? $prefs->get('quietSpeed') : undef },
+		wave_helper => _wave_helper(),
 		on_change => sub { _sync_drive(); $STATE->on_jobs_changed if $STATE });
 
 	$RIPPER = Plugins::AudioCD::Ripper->new(
@@ -517,6 +524,7 @@ sub initPlugin {
 		browse         => [ 0, 1, 1, \&_cli_browse ],
 		mkdir          => [ 0, 0, 1, \&_cli_mkdir ],
 		history        => [ 0, 1, 1, \&_cli_history ],
+		wave           => [ 0, 1, 1, \&_cli_wave ],
 		history_clear  => [ 0, 0, 1, \&_cli_history_clear ],
 	);
 	Slim::Control::Request::addDispatch([ 'audiocd', $_ ], $cmd{$_}) for keys %cmd;
@@ -667,6 +675,20 @@ sub _cli_history {
 	my ($request) = @_;
 	$request->addResult(history => [ map { my $m = $MOVE_STATE{ $_->{id} // '' }; $m ? { %$_, move => { %$m } } : $_ } @{ $RIPPER->history } ]);
 	$request->setStatusDone;
+}
+
+# audiocd wave discid:<id> track:<n> -> points, peak [...], rms [...] (0..1000), ili error not_ready
+# (pesma jos nije u kesu ili talas nije izracunat; tada ide prva u red za racunanje).
+sub _cli_wave {
+	my ($request) = @_;
+	my ($discid, $n) = (_param($request, 'discid'), _param($request, 'track'));
+	return _done($request, undef, { error => 'bad_args' }) unless defined $discid && defined $n && $n =~ /^\d{1,3}\z/;
+	my $w = $CACHE ? $CACHE->wave($discid, $n + 0) : undef;
+	unless ($w) {
+		$CACHE->wave_first($n + 0) if $CACHE;
+		return _done($request, undef, { error => 'not_ready' });
+	}
+	_done($request, 1, undef, %$w);
 }
 
 # Brise istoriju ripova (ne albume na disku); unos cije premestanje u biblioteku jos traje ostaje.

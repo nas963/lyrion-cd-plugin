@@ -511,6 +511,70 @@
     view.c.forEach(function (n) { cal.appendChild(el('span', n === view.n ? 'now' : n < view.n ? 'past' : null, String(n))); });
   }
 
+  // ---------- talasni oblik pesme (audiocd wave; racuna se posle izvlacenja pesme u kes) ----------
+
+  var wave = { key: '', data: null, asked: 0, pending: false };
+
+  function waveKey(pb) { return pb ? pb.discid + '/' + pb.n : ''; }
+
+  // Pita server za talas: kad se promeni pesma, i kad status kesa kaze da je izracunat.
+  function loadWave() {
+    var pb = playingTrack() ? state.playback : null;
+    var key = waveKey(pb);
+    if (key !== wave.key) { wave = { key: key, data: null, asked: 0, pending: false }; changed('wave', null); }
+    if (!pb || wave.data || wave.pending) return;
+    var cache = state.snap && state.snap.cache && state.snap.cache.discid === pb.discid ? state.snap.cache : {};
+    var ready = (cache.waves || []).map(Number).indexOf(pb.n) >= 0;
+    if (!ready && wave.asked) return;    // prvi upit vec je stavio pesmu na pocetak reda
+    wave.pending = true;
+    wave.asked++;
+    rpc('', ['audiocd', 'wave', 'discid:' + pb.discid, 'track:' + pb.n]).then(function (r) {
+      if (wave.key === key && r.peak && r.rms) wave.data = { peak: r.peak.map(Number), rms: r.rms.map(Number) };
+    }).catch(function () { }).then(function () { if (wave.key === key) wave.pending = false; renderWave(); });
+  }
+
+  // Tanke uspravne crte, simetricno oko sredine; visina po RMS-u (najglasniji deo pesme = puna visina).
+  function renderWave() {
+    var c = $('wave');
+    var pb = playingTrack() ? state.playback : null;
+    var w = pb && wave.key === waveKey(pb) ? wave.data : null;
+    c.hidden = !w;
+    if (!w) return;
+    var dpr = window.devicePixelRatio || 1;
+    var cw = Math.round(c.clientWidth * dpr), ch = Math.round(c.clientHeight * dpr);
+    var pos = pb.duration ? position(pb) / pb.duration : 0;
+    var bars = Math.max(20, Math.floor(c.clientWidth / 3));
+    var played = Math.round(bars * pos);
+    if (!changed('wave', [wave.key, cw, ch, played, pb.mode].join('|'))) return;
+    if (c.width !== cw) c.width = cw;
+    if (c.height !== ch) c.height = ch;
+    var g = c.getContext('2d');
+    var cs = getComputedStyle(c);
+    var x0 = parseFloat(cs.paddingLeft) * dpr, y0 = parseFloat(cs.paddingTop) * dpr;
+    var iw = cw - x0 - parseFloat(cs.paddingRight) * dpr, ih = ch - y0 - parseFloat(cs.paddingBottom) * dpr;
+    var n = w.rms.length, max = Math.max.apply(null, w.rms) || 1;
+    var step = iw / bars, bw = Math.max(1, Math.round(step * 0.45));
+    g.clearRect(0, 0, cw, ch);
+    for (var i = 0; i < bars; i++) {
+      var a = Math.floor(i * n / bars), b = Math.max(a + 1, Math.floor((i + 1) * n / bars)), v = 0;
+      for (var j = a; j < b && j < n; j++) v = Math.max(v, w.rms[j]);
+      var h = Math.max(dpr, Math.round(ih * Math.min(1, v / max)));
+      g.fillStyle = i < played ? '#62e6f5' : (pb.mode === 'pause' ? 'rgba(98,230,245,0.18)' : 'rgba(98,230,245,0.28)');
+      g.fillRect(Math.round(x0 + i * step), Math.round(y0 + (ih - h) / 2), bw, h);
+    }
+  }
+
+  function seekWave(ev) {
+    var pb = playingTrack() ? state.playback : null;
+    if (!pb || !pb.duration || !wave.data) return;
+    var c = $('wave'), r = c.getBoundingClientRect(), cs = getComputedStyle(c);
+    var x = ev.clientX - r.left - parseFloat(cs.paddingLeft), iw = r.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    var sec = Math.floor(Math.max(0, Math.min(1, x / iw)) * pb.duration);
+    pb.time = sec; pb.at = Date.now();
+    renderWave();
+    rpc(pb.pid, ['time', sec]).then(loadPlayback).then(render).catch(function () { });
+  }
+
   function renderTracks() {
     var snap = state.snap;
     if (!snap) return;
@@ -679,6 +743,8 @@
     renderDisc();
     renderPlayback();
     renderDisplay();
+    loadWave();
+    renderWave();
     renderTracks();
     renderProgress();
     renderHistory();
@@ -925,7 +991,10 @@
       store(DISP_KEY, String(dispMode));
       renderDisplay();
     });
-    setInterval(function () { if (!document.hidden) renderDisplay(); }, 250);
+    setInterval(function () { if (!document.hidden) { renderDisplay(); renderWave(); } }, 250);
+    $('wave').title = t('UI_WAVE_SEEK');
+    $('wave').addEventListener('click', seekWave);
+    window.addEventListener('resize', function () { renderWave(); });
     $('btn-play').addEventListener('click', playPause);
     $('btn-prev').addEventListener('click', function () { transport(['playlist', 'index', '-1']); });
     $('btn-next').addEventListener('click', function () { transport(['playlist', 'index', '+1']); });
